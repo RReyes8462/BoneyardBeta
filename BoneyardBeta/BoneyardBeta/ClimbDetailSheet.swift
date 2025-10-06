@@ -5,7 +5,7 @@ import FirebaseAuth
 struct ClimbDetailSheet: View {
     @EnvironmentObject var firebase: FirebaseManager
     @EnvironmentObject var auth: AuthManager
-
+    
     let climb: Climb
     let onDismiss: () -> Void
 
@@ -13,10 +13,12 @@ struct ClimbDetailSheet: View {
     @State private var rating: Int = 0
     @State private var message: String?
     @State private var isSubmitting = false
+    @State private var hasLoadedExistingLog = false
 
     var body: some View {
         NavigationView {
             VStack(alignment: .leading, spacing: 16) {
+
                 // MARK: - Header
                 HStack {
                     VStack(alignment: .leading) {
@@ -53,11 +55,12 @@ struct ClimbDetailSheet: View {
                             .font(.caption)
                     }
                 }
+                .padding(.vertical, 8)
 
                 Divider()
 
-                // MARK: - Log Input
-                Text("Log your climb:")
+                // MARK: - User Log Input
+                Text("Your log:")
                     .font(.headline)
                 TextEditor(text: $comment)
                     .frame(height: 100)
@@ -65,7 +68,7 @@ struct ClimbDetailSheet: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
 
-                Text("Rate this climb:")
+                Text("Your rating:")
                     .font(.headline)
                 HStack {
                     ForEach(1...5, id: \.self) { star in
@@ -80,7 +83,7 @@ struct ClimbDetailSheet: View {
 
                 if let message = message {
                     Text(message)
-                        .foregroundColor(message.hasPrefix("✅") ? .green : .red)
+                        .foregroundColor(.gray)
                         .padding(.top, 6)
                 }
 
@@ -97,7 +100,7 @@ struct ClimbDetailSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(isSubmitting ? Color.gray : Color.blue)
+                    .background(Color.blue)
                     .foregroundColor(.white)
                     .cornerRadius(10)
                 }
@@ -107,15 +110,30 @@ struct ClimbDetailSheet: View {
             .navigationTitle("Climb Details")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close") { onDismiss() }
+                    Button("Close") {
+                        onDismiss()
+                    }
+                }
+            }
+            .onAppear {
+                if !hasLoadedExistingLog {
+                    firebase.fetchUserLog(for: climb.id ?? "") { existingComment, existingRating in
+                        if let existingComment = existingComment {
+                            comment = existingComment
+                        }
+                        if let existingRating = existingRating {
+                            rating = Int(existingRating)
+                        }
+                        hasLoadedExistingLog = true
+                    }
                 }
             }
         }
     }
 
-    // MARK: - Log Submit Action
+    // MARK: - Logging Function
     private func submitLog() {
-        guard let user = auth.user else {
+        guard let _ = auth.user else {
             message = "You must be logged in to log a climb."
             return
         }
@@ -130,14 +148,12 @@ struct ClimbDetailSheet: View {
         firebase.logClimbSend(
             climbID: climb.id ?? "",
             comment: comment,
-            rating: Double(rating)            
+            rating: Double(rating)
         ) { success, error in
             DispatchQueue.main.async {
                 isSubmitting = false
                 if success {
                     message = "✅ Climb logged!"
-                    comment = ""
-                    rating = 0
                 } else {
                     message = "❌ Failed to log climb: \(error ?? "Unknown error")"
                 }

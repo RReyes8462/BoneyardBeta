@@ -65,7 +65,7 @@ class FirebaseManager: ObservableObject {
         }
     }
 
-    // MARK: - Log Climb Send (User)
+    // MARK: - Log Climb Send (1 log per user)
     func logClimbSend(
         climbID: String,
         comment: String,
@@ -85,7 +85,7 @@ class FirebaseManager: ObservableObject {
         let climbRef = db.collection("climbs").document(climbID)
 
         db.runTransaction({ (transaction, errorPointer) -> Any? in
-            // Read current climb
+            // Fetch climb document
             let climbDoc: DocumentSnapshot
             do {
                 climbDoc = try transaction.getDocument(climbRef)
@@ -94,13 +94,35 @@ class FirebaseManager: ObservableObject {
                 return nil
             }
 
-            // Safely unwrap existing data
+            // Check if user already has a log
+            var hadPreviousLog = false
+            var previousRating = 0.0
+            do {
+                let existingLog = try transaction.getDocument(logRef)
+                if existingLog.exists,
+                   let prevRating = existingLog.data()?["rating"] as? Double {
+                    hadPreviousLog = true
+                    previousRating = prevRating
+                }
+            } catch { }
+
+            // Read climb stats
             let currentAscentCount = (climbDoc.data()?["ascentCount"] as? Int) ?? 0
             let currentAvgRating = (climbDoc.data()?["avgRating"] as? Double) ?? 0.0
 
-            // Compute new stats
-            let newAscentCount = currentAscentCount + 1
-            let newAvgRating = ((currentAvgRating * Double(currentAscentCount)) + rating) / Double(newAscentCount)
+            var newAscentCount = currentAscentCount
+            var totalRating = currentAvgRating * Double(currentAscentCount)
+
+            if hadPreviousLog {
+                // Replace user’s previous rating
+                totalRating = totalRating - previousRating + rating
+            } else {
+                // Add new log
+                newAscentCount += 1
+                totalRating += rating
+            }
+
+            let newAvgRating = newAscentCount > 0 ? (totalRating / Double(newAscentCount)) : 0.0
 
             // Update climb stats
             transaction.updateData([
@@ -108,7 +130,7 @@ class FirebaseManager: ObservableObject {
                 "avgRating": newAvgRating
             ], forDocument: climbRef)
 
-            // Write user's log
+            // Update user's log
             transaction.setData([
                 "comment": comment,
                 "rating": rating,
@@ -123,13 +145,35 @@ class FirebaseManager: ObservableObject {
                 print("❌ Failed to log climb:", error.localizedDescription)
                 completion(false, error.localizedDescription)
             } else {
-                print("✅ Logged climb successfully")
+                print("✅ Logged climb successfully (single log per user)")
                 completion(true, nil)
             }
         }
     }
 
-    // MARK: - Stop Listening
+    // MARK: - Fetch User Log
+    func fetchUserLog(for climbID: String, completion: @escaping (String?, Double?) -> Void) {
+        guard let user = Auth.auth().currentUser else {
+            completion(nil, nil)
+            return
+        }
+
+        let logRef = db.collection("climbs")
+            .document(climbID)
+            .collection("logs")
+            .document(user.uid)
+
+        logRef.getDocument { doc, _ in
+            if let data = doc?.data() {
+                let comment = data["comment"] as? String
+                let rating = data["rating"] as? Double
+                completion(comment, rating)
+            } else {
+                completion(nil, nil)
+            }
+        }
+    }
+
     func stopListening() {
         listener?.remove()
     }
