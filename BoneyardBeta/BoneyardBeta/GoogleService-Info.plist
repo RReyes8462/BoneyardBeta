@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>495181338805-2hmn84n5u0ne1ecshpknhic69m0372ov.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.495181338805-2hmn84n5u0ne1ecshpknhic69m0372ov</string>
+	<key>API_KEY</key>
+	<string>AIzaSyAJ9_X1MdfxLIP2XOCPjrPVONesUO7hj0o</string>
+	<key>GCM_SENDER_ID</key>
+	<string>495181338805</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>Red8462.BoneyardBeta</string>
+	<key>PROJECT_ID</key>
+	<string>boneyardbeta</string>
+	<key>STORAGE_BUCKET</key>
+	<string>boneyardbeta.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:495181338805:ios:f1a1b83843f6bc6e3686fc</string>
+</dict>
+</plist>

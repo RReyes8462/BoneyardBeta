@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Everyone can read climbs
+    match /climbs/{climbId} {
+      allow read: if true;
+      allow write: if request.auth != null; // only signed-in users can write
+
+      // ✅ Allow each signed-in user to write their own log
+      match /logs/{userId} {
+        allow read: if true;  // everyone can see climb logs
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // --- Admins collection (read-only for normal users)
+    match /admins/{adminId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == adminId;
+    }
+  }
+}
