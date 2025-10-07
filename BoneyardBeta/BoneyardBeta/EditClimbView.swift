@@ -10,14 +10,36 @@ struct EditClimbView: View {
     @State private var showDeleteConfirm = false
     
     // Available color options
-    let colorOptions = ["red", "blue", "green", "purple", "yellow", "gray", "white"]
-
+    let colorOptions = ["red", "orange", "blue", "green", "purple", "yellow", "black", "white"]
+    
+    // Grade options with color-coded tags
+    let gradeOptions: [(color: Color, label: String)] = [
+        (.red, "Red Tag (V0–V1)"),
+        (.blue, "Blue Tag (V1–V2)"),
+        (.yellow, "Yellow Tag (V3–4)"),
+        (.green, "Green Tag (V4–6)"),
+        (.purple, "Purple Tag (V6–8)"),
+        (.pink, "Pink Tag (V8+)")
+    ]
+    
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Climb Details")) {
                     TextField("Name", text: $climb.name)
-                    TextField("Grade", text: $climb.grade)
+                    
+                    // Grade picker dropdown
+                    Picker("Grade", selection: $climb.grade) {
+                        ForEach(gradeOptions, id: \.label) { option in
+                            HStack {
+                                Circle()
+                                    .fill(option.color)
+                                    .frame(width: 16, height: 16)
+                                Text(option.label)
+                            }
+                            .tag(option.label)
+                        }
+                    }
                     
                     // Color picker dropdown
                     Picker("Color", selection: $climb.color) {
@@ -77,11 +99,13 @@ struct EditClimbView: View {
         switch name.lowercased() {
         case "red": return .red
         case "blue": return .blue
+        case "orange": return .orange
         case "green": return .green
         case "purple": return .purple
         case "yellow": return .yellow
-        case "gray": return .gray
-        case "white": return .white
+        case "black": return .black
+        case "white": return .gray
+        case "pink": return .pink
         default: return .black
         }
     }
