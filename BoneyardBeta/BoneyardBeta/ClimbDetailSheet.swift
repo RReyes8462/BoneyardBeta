@@ -22,6 +22,9 @@ struct ClimbDetailSheet: View {
     var onClose: () -> Void
     @State private var gradeVotes: [GradeVote] = []
     @State private var userVote: String? = nil
+    @State private var canVote = false
+    @State private var videoToDelete: VideoData? = nil
+    @State private var showDeleteConfirm = false
 
     @EnvironmentObject var firebase: FirebaseManager
     @EnvironmentObject var auth: AuthManager
@@ -81,7 +84,16 @@ struct ClimbDetailSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(hasLogged ? "Edit Your Ascent Log" : "Log an Ascent")
                             .font(.headline)
-
+                        if canVote, let vote = userVote {
+                            HStack {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .foregroundColor(.blue)
+                                Text("You voted: \(vote)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.top, 4)
+                        }
                         if hasLogged {
                             Text("You’ve already logged this climb. You can update your rating or comment below.")
                                 .font(.caption)
@@ -186,11 +198,11 @@ struct ClimbDetailSheet: View {
                         }
                     }
                     Divider()
-
                     // MARK: Grade Consensus Poll
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Community Grade Consensus")
                             .font(.headline)
+
                         let gradeOptions = climb.grade.contains("Pink Tag (V8+)") ? ["V8", "V9", "V10+"] :
                                            climb.grade.contains("Purple Tag (V6–8)") ? ["V6", "V7", "V8"] :
                                            climb.grade.contains("Green Tag (V4–6)") ? ["V4", "V5", "V6"] :
@@ -199,15 +211,17 @@ struct ClimbDetailSheet: View {
                                            climb.grade.contains("Blue Tag (VB–V0)") ? ["V0", "V1"] :
                                            climb.grade.contains("White Tag (Ungraded)") ? ["V0", "V1"] :
                                            ["Ungraded"]
-
-                        if gradeVotes.isEmpty {
-                            Text("No votes yet. Cast the first one!")
+                        if !canVote {
+                            Text("Log a send to cast your grade opinion!")
+                                .font(.subheadline)
                                 .foregroundColor(.secondary)
+                                .padding(.bottom, 6)
                         }
 
                         ForEach(gradeOptions, id: \.self) { option in
                             HStack {
                                 Button {
+                                    guard canVote else { return }
                                     if let user = auth.user {
                                         firebase.submitGradeVote(for: climb.id ?? "", vote: option, user: user) {
                                             loadGradeVotes()
@@ -220,12 +234,17 @@ struct ClimbDetailSheet: View {
                                         .padding(.vertical, 6)
                                         .background(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .fill(userVote == option ? Color.blue : Color.gray.opacity(0.2))
+                                                .fill(userVote == option
+                                                      ? Color.blue
+                                                      : (canVote ? Color.gray.opacity(0.2)
+                                                                 : Color.gray.opacity(0.1)))
                                         )
-                                        .foregroundColor(userVote == option ? .white : .primary)
+                                        .foregroundColor(canVote ? (userVote == option ? .white : .primary)
+                                                                 : .gray)
                                 }
+                                .disabled(!canVote)
 
-                                // progress bar for this option
+                                // progress bar
                                 GeometryReader { geo in
                                     RoundedRectangle(cornerRadius: 4)
                                         .fill(Color.blue.opacity(0.3))
@@ -237,6 +256,7 @@ struct ClimbDetailSheet: View {
                                     .font(.caption)
                                     .frame(width: 40, alignment: .trailing)
                             }
+                            .opacity(canVote ? 1 : 0.5)
                         }
                     }
 
@@ -279,7 +299,8 @@ struct ClimbDetailSheet: View {
 
                                         if video.uploaderID == auth.user?.uid {
                                             Button(role: .destructive) {
-                                                firebase.deleteVideo(for: climb.id ?? "", videoID: video.id, videoURL: video.url) { _ in }
+                                                videoToDelete = video
+                                                showDeleteConfirm = true
                                             } label: {
                                                 Image(systemName: "trash")
                                             }
@@ -399,7 +420,20 @@ struct ClimbDetailSheet: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-        }
+        }.alert("Delete Beta Video?",
+                isPresented: $showDeleteConfirm,
+                presenting: videoToDelete) { video in
+             Button("Delete", role: .destructive) {
+                 firebase.deleteVideo(for: climb.id ?? "", videoID: video.id, videoURL: video.url) { _ in
+                     videoToDelete = nil
+                 }
+             }
+             Button("Cancel", role: .cancel) {
+                 videoToDelete = nil
+             }
+         } message: { video in
+             Text("This will permanently delete your beta video uploaded by \(video.uploaderEmail).")
+         }
     }
 
     // MARK: - Upload Video with Progress
@@ -497,6 +531,7 @@ struct ClimbDetailSheet: View {
             guard let doc = doc, doc.exists else {
                 hasLogged = false
                 userLog = nil
+                canVote = false   // ❌ cannot vote until logged
                 return
             }
             if let existing = try? doc.data(as: ClimbLog.self) {
@@ -504,9 +539,11 @@ struct ClimbDetailSheet: View {
                 hasLogged = true
                 rating = existing.rating
                 commentText = existing.comment
+                canVote = true    // ✅ can vote after logging
             }
         }
     }
+
     private func loadGradeVotes() {
         guard let climbID = climb.id else { return }
         firebase.db.collection("climbs").document(climbID)
