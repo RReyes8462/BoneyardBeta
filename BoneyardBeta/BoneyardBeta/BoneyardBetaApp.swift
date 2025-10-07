@@ -3,8 +3,8 @@ import Firebase
 
 @main
 struct BoneyardBetaApp: App {
-    @StateObject var auth = AuthManager()
     @StateObject var firebase = FirebaseManager.shared
+    @StateObject var auth = AuthManager()
 
     init() {
         FirebaseApp.configure()
@@ -14,12 +14,12 @@ struct BoneyardBetaApp: App {
         WindowGroup {
             if auth.user != nil {
                 ContentView()
-                    .environmentObject(auth)
                     .environmentObject(firebase)
+                    .environmentObject(auth)
             } else {
                 LoginView()
-                    .environmentObject(auth)
                     .environmentObject(firebase)
+                    .environmentObject(auth)
             }
         }
     }

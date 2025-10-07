@@ -19,7 +19,8 @@ struct EditClimbView: View {
         (.yellow, "Yellow Tag (V3–4)"),
         (.green, "Green Tag (V4–6)"),
         (.purple, "Purple Tag (V6–8)"),
-        (.pink, "Pink Tag (V8+)")
+        (.pink, "Pink Tag (V8+)"),
+        (.white, "White Tag (Ungraded)")
     ]
     
     var body: some View {

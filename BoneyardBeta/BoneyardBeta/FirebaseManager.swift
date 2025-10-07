@@ -1,232 +1,256 @@
 import Foundation
-import FirebaseAuth
+import Firebase
 import FirebaseFirestore
 import FirebaseStorage
 import Combine
+import FirebaseAuth
 
 final class FirebaseManager: ObservableObject {
     static let shared = FirebaseManager()
-
-    @Published var isAdmin: Bool = false
     let db = Firestore.firestore()
-    private var cancellables = Set<AnyCancellable>()
+    let storage = Storage.storage()
 
     private init() {}
+}
 
-    // MARK: - Video Upload
-    func uploadBetaVideo(for climbID: String, videoURL: URL, completion: @escaping (Bool, String?) -> Void) {
-        guard let user = Auth.auth().currentUser else {
-            completion(false, "User not authenticated")
-            return
+// MARK: - Core Climb Logging + Stats
+extension FirebaseManager {
+
+    /// Log or update a user's ascent for a climb.
+    func logClimbAscent(for climb: Climb,
+                        rating: Int,
+                        comment: String,
+                        user: User,
+                        completion: (() -> Void)? = nil) {
+        guard let climbID = climb.id else { return }
+
+        let logRef = db.collection("climbs").document(climbID)
+            .collection("logs").document(user.uid)
+
+        let log = ClimbLog(
+            userID: user.uid,
+            email: user.email ?? "unknown",
+            comment: comment,
+            rating: rating,
+            timestamp: Date()
+        )
+
+        do {
+            try logRef.setData(from: log) { error in
+                if let error = error {
+                    print("❌ Error saving log:", error.localizedDescription)
+                } else {
+                    print("✅ Log saved or updated for \(climb.name)")
+                    completion?() // Update UI immediately
+                    self.updateClimbStats(climbID: climbID)
+                }
+            }
+        } catch {
+            print("❌ Encoding error:", error.localizedDescription)
         }
+    }
 
-        // Check file exists
-        guard FileManager.default.fileExists(atPath: videoURL.path) else {
-            completion(false, "File not found at path: \(videoURL.lastPathComponent)")
-            return
-        }
+    /// Recalculate the average rating and ascent count for a climb.
+    func updateClimbStats(climbID: String) {
+        let logsRef = db.collection("climbs").document(climbID).collection("logs")
 
-        // ✅ Unique filename for multiple uploads
-        let fileName = "\(UUID().uuidString).mp4"
-        let storageRef = Storage.storage().reference()
-            .child("beta_videos/\(climbID)/\(user.uid)/\(fileName)")
-
-        print("📤 Starting upload to \(storageRef.fullPath)")
-
-        let metadata = StorageMetadata()
-        metadata.contentType = "video/mp4"
-
-        let uploadTask = storageRef.putFile(from: videoURL, metadata: metadata) { metadata, error in
+        logsRef.getDocuments { snapshot, error in
             if let error = error {
-                print("❌ Upload error:", error.localizedDescription)
-                completion(false, error.localizedDescription)
+                print("❌ Error fetching logs for stats:", error.localizedDescription)
                 return
             }
 
-            storageRef.downloadURL { url, error in
-                if let error = error {
-                    print("❌ Failed to get downloadURL:", error.localizedDescription)
-                    completion(false, error.localizedDescription)
-                    return
-                }
+            guard let docs = snapshot?.documents else { return }
+            let ratings = docs.compactMap { $0.data()["rating"] as? Int }
 
-                guard let url = url else {
-                    completion(false, "Missing download URL")
-                    return
-                }
+            guard !ratings.isEmpty else {
+                self.db.collection("climbs").document(climbID)
+                    .updateData(["avgRating": 0.0, "ascentCount": 0])
+                return
+            }
 
-                print("✅ Video uploaded, URL: \(url.absoluteString)")
+            let avg = Double(ratings.reduce(0, +)) / Double(ratings.count)
+            let count = ratings.count
 
-                // Save in Firestore under user's log
-                let logRef = self.db.collection("climbs")
-                    .document(climbID)
-                    .collection("logs")
-                    .document(user.uid)
-
-                logRef.updateData([
-                    "betaVideos": FieldValue.arrayUnion([url.absoluteString])
-                ]) { error in
-                    if let error = error {
-                        print("❌ Failed to save video URL:", error.localizedDescription)
-                        completion(false, error.localizedDescription)
+            self.db.collection("climbs").document(climbID)
+                .updateData([
+                    "avgRating": avg,
+                    "ascentCount": count
+                ]) { err in
+                    if let err = err {
+                        print("❌ Failed to update climb stats:", err.localizedDescription)
                     } else {
-                        print("✅ Video URL added to Firestore log array")
-                        completion(true, nil)
+                        print("✅ Climb stats updated successfully.")
                     }
                 }
-            }
-        }
-
-        uploadTask.observe(.progress) { snapshot in
-            let percent = Double(snapshot.progress?.completedUnitCount ?? 0)
-                        / Double(snapshot.progress?.totalUnitCount ?? 1) * 100
-            print("📈 Upload progress: \(String(format: "%.1f", percent))%")
-        }
-    }
-    // MARK: - Log Climb Send
-    func logClimbSend(
-        climbID: String,
-        comment: String,
-        rating: Double,
-        completion: @escaping (Bool, String?) -> Void
-    ) {
-        guard let user = Auth.auth().currentUser else {
-            completion(false, "User not authenticated")
-            return
-        }
-
-        let logRef = db.collection("climbs")
-            .document(climbID)
-            .collection("logs")
-            .document(user.uid)
-
-        let climbRef = db.collection("climbs").document(climbID)
-
-        // ✅ Step 1: Check if user already has a log
-        logRef.getDocument { existingLog, error in
-            if let error = error {
-                completion(false, "Failed to check existing log: \(error.localizedDescription)")
-                return
-            }
-
-            let isNewLog = !(existingLog?.exists ?? false)
-            let oldRating = existingLog?.data()?["rating"] as? Double
-
-            self.db.runTransaction({ (transaction, errorPointer) -> Any? in
-                // Read the current climb
-                let climbDoc: DocumentSnapshot
-                do {
-                    climbDoc = try transaction.getDocument(climbRef)
-                } catch let fetchError as NSError {
-                    errorPointer?.pointee = fetchError
-                    return nil
-                }
-
-                // Pull climb data safely
-                var ascentCount = (climbDoc.data()?["ascentCount"] as? Int) ?? 0
-                var ratingCount = (climbDoc.data()?["ratingCount"] as? Int) ?? 0
-                var totalRating = (climbDoc.data()?["totalRating"] as? Double) ?? 0.0
-                var avgRating = (climbDoc.data()?["avgRating"] as? Double) ?? 0.0
-
-                if isNewLog {
-                    // First time this user logged — increment ascent & ratings
-                    ascentCount += 1
-                    ratingCount += 1
-                    totalRating += rating
-                } else if let oldRating = oldRating {
-                    // User already logged — adjust totals
-                    totalRating = totalRating - oldRating + rating
-                }
-
-                // Compute average safely
-                if ratingCount > 0 {
-                    avgRating = totalRating / Double(ratingCount)
-                }
-
-                // Update climb stats
-                transaction.updateData([
-                    "ascentCount": ascentCount,
-                    "ratingCount": ratingCount,
-                    "totalRating": totalRating,
-                    "avgRating": avgRating
-                ], forDocument: climbRef)
-
-                // Save or update log
-                transaction.setData([
-                    "comment": comment,
-                    "rating": rating,
-                    "timestamp": FieldValue.serverTimestamp(),
-                    "userID": user.uid,
-                    "userEmail": user.email ?? "unknown"
-                ], forDocument: logRef, merge: true)
-
-                return nil
-            }) { (_, error) in
-                if let error = error {
-                    print("❌ Failed to log climb:", error.localizedDescription)
-                    completion(false, error.localizedDescription)
-                } else {
-                    print("✅ Logged climb successfully (\(isNewLog ? "new" : "update"))")
-                    completion(true, nil)
-                }
-            }
-        }
-    }
-
-    // MARK: - Fetch User Log
-    func fetchUserLog(for climbID: String, completion: @escaping ([String: Any]?) -> Void) {
-        guard let user = Auth.auth().currentUser else {
-            completion(nil)
-            return
-        }
-
-        let logRef = db.collection("climbs")
-            .document(climbID)
-            .collection("logs")
-            .document(user.uid)
-
-        logRef.getDocument { doc, error in
-            if let doc = doc, doc.exists {
-                completion(doc.data())
-            } else {
-                completion(nil)
-            }
-        }
-    }
-
-    // MARK: - Climb CRUD
-    func addClimb(gymID: String, updatedBy: String) {
-        let newClimb: [String: Any] = [
-            "name": "New Climb",
-            "grade": "V0",
-            "color": "gray",
-            "x": 500,
-            "y": 350,
-            "gymID": gymID,
-            "updatedBy": updatedBy,
-            "ascentCount": 0,
-            "avgRating": 0.0
-        ]
-        db.collection("climbs").addDocument(data: newClimb)
-    }
-
-    func saveClimb(_ climb: Climb) {
-        guard let id = climb.id else { return }
-        do {
-            try db.collection("climbs").document(id).setData(from: climb, merge: true)
-        } catch {
-            print("❌ Save error:", error)
-        }
-    }
-
-    func deleteClimb(_ climb: Climb) {
-        guard let id = climb.id else { return }
-        db.collection("climbs").document(id).delete { err in
-            if let err = err {
-                print("❌ Delete error:", err)
-            } else {
-                print("🗑️ Deleted climb \(climb.name)")
-            }
         }
     }
 }
+
+// MARK: - Video Management
+extension FirebaseManager {
+
+    /// Save metadata for a new beta video.
+    func saveVideoMetadata(for climbID: String,
+                           url: String,
+                           completion: ((Bool) -> Void)? = nil) {
+        guard let user = Auth.auth().currentUser else { return }
+
+        let ref = db.collection("climbs").document(climbID)
+            .collection("videos").document()
+
+        let data: [String: Any] = [
+            "url": url,
+            "uploaderID": user.uid,
+            "uploaderEmail": user.email ?? "unknown",
+            "likes": [],
+            "comments": [],
+            "timestamp": Timestamp(date: Date())
+        ]
+
+        ref.setData(data) { err in
+            if let err = err {
+                print("❌ Error saving video metadata:", err.localizedDescription)
+                completion?(false)
+            } else {
+                print("✅ Video metadata saved.")
+                completion?(true)
+            }
+        }
+    }
+
+    /// Toggle like for a given video.
+    func toggleLike(for climbID: String,
+                    videoID: String,
+                    userID: String,
+                    completion: ((Bool) -> Void)? = nil) {
+        let ref = db.collection("climbs").document(climbID)
+            .collection("videos").document(videoID)
+
+        db.runTransaction({ (transaction, errorPointer) -> Any? in
+            let snapshot: DocumentSnapshot
+            do {
+                snapshot = try transaction.getDocument(ref)
+            } catch let error as NSError {
+                errorPointer?.pointee = error
+                return nil
+            }
+
+            guard var likes = snapshot.data()?["likes"] as? [String] else { return nil }
+
+            if likes.contains(userID) {
+                likes.removeAll { $0 == userID }
+            } else {
+                likes.append(userID)
+            }
+
+            transaction.updateData(["likes": likes], forDocument: ref)
+            return nil
+        }) { (_, error) in
+            if let error = error {
+                print("❌ Transaction failed:", error.localizedDescription)
+                completion?(false)
+            } else {
+                print("✅ Like toggled for video \(videoID)")
+                completion?(true)
+            }
+        }
+    }
+
+    /// Add a comment to a video.
+    func addComment(for climbID: String,
+                    videoID: String,
+                    text: String,
+                    user: User,
+                    completion: ((Bool) -> Void)? = nil) {
+        let ref = db.collection("climbs").document(climbID)
+            .collection("videos").document(videoID)
+
+        ref.updateData([
+            "comments": FieldValue.arrayUnion([
+                ["email": user.email ?? "unknown",
+                 "text": text,
+                 "timestamp": Timestamp(date: Date())]
+            ])
+        ]) { err in
+            if let err = err {
+                print("❌ Error adding comment:", err.localizedDescription)
+                completion?(false)
+            } else {
+                print("✅ Comment added to video \(videoID)")
+                completion?(true)
+            }
+        }
+    }
+
+    /// Delete a video (metadata + storage file).
+    func deleteVideo(for climbID: String,
+                     videoID: String,
+                     videoURL: String,
+                     completion: ((Bool) -> Void)? = nil) {
+        let videoRef = db.collection("climbs").document(climbID)
+            .collection("videos").document(videoID)
+
+        videoRef.delete { err in
+            if let err = err {
+                print("❌ Error deleting video metadata:", err.localizedDescription)
+                completion?(false)
+            } else {
+                print("✅ Video metadata deleted.")
+                let storageRef = Storage.storage().reference(forURL: videoURL)
+                storageRef.delete { storageErr in
+                    if let storageErr = storageErr {
+                        print("⚠️ Warning: Could not delete video file:", storageErr.localizedDescription)
+                    } else {
+                        print("✅ Video file deleted from Storage.")
+                    }
+                    completion?(true)
+                }
+            }
+        }
+    }
+    func addClimb(gymID: String, updatedBy: String) {
+           let ref = db.collection("climbs").document()
+           let newClimb = Climb(
+               id: ref.documentID,
+               name: "New Climb",
+               grade: "V0",
+               color: "gray",
+               x: 100,
+               y: 100,
+               gymID: gymID,
+               updatedBy: updatedBy,
+               ascentCount: 0,
+               avgRating: 0.0
+           )
+
+           do {
+               try ref.setData(from: newClimb)
+               print("✅ Added new climb to Firestore.")
+           } catch {
+               print("❌ Error adding climb:", error.localizedDescription)
+           }
+       }
+
+       func saveClimb(_ climb: Climb) {
+           guard let climbID = climb.id else { return }
+           do {
+               try db.collection("climbs").document(climbID).setData(from: climb)
+               print("✅ Climb saved successfully.")
+           } catch {
+               print("❌ Error saving climb:", error.localizedDescription)
+           }
+       }
+
+       func deleteClimb(_ climb: Climb) {
+           guard let climbID = climb.id else { return }
+           db.collection("climbs").document(climbID).delete { err in
+               if let err = err {
+                   print("❌ Error deleting climb:", err.localizedDescription)
+               } else {
+                   print("✅ Climb deleted successfully.")
+               }
+           }
+       }
+}
+
