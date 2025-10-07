@@ -4,6 +4,12 @@ import PhotosUI
 import FirebaseFirestore
 import FirebaseAuth
 
+// MARK: - Identifiable wrapper for fullscreen videos
+struct VideoItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 struct ClimbDetailSheet: View {
     @EnvironmentObject var firebase: FirebaseManager
     @EnvironmentObject var auth: AuthManager
@@ -17,8 +23,9 @@ struct ClimbDetailSheet: View {
     @State private var message: String?
     @State private var selectedVideo: PhotosPickerItem?
     @State private var selectedVideoURL: URL?
-    @State private var allVideos: [String] = [] // all beta videos (any user)
+    @State private var allVideos: [String] = []
     @State private var userLog: [String: Any]?
+    @State private var fullscreenVideo: VideoItem?
 
     var body: some View {
         NavigationView {
@@ -65,7 +72,7 @@ struct ClimbDetailSheet: View {
 
                     Divider()
 
-                    // MARK: - User Log Input
+                    // MARK: - Log input
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Your Log")
                             .font(.headline)
@@ -90,7 +97,6 @@ struct ClimbDetailSheet: View {
                         }
                     }
 
-                    // MARK: - Submit Log
                     Button(action: submitLog) {
                         HStack {
                             if isSubmitting { ProgressView() }
@@ -113,7 +119,7 @@ struct ClimbDetailSheet: View {
 
                     Divider()
 
-                    // MARK: - Video Upload Section
+                    // MARK: - Upload Section
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Upload a Beta Video")
                             .font(.headline)
@@ -158,9 +164,13 @@ struct ClimbDetailSheet: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
                                     ForEach(allVideos, id: \.self) { videoURL in
-                                        VideoPlayerView(videoURL: URL(string: videoURL)!)
-                                            .frame(width: 220, height: 160)
-                                            .cornerRadius(10)
+                                        Button {
+                                            fullscreenVideo = VideoItem(url: URL(string: videoURL)!)
+                                        } label: {
+                                            VideoThumbnailView(videoURL: URL(string: videoURL)!)
+                                                .frame(width: 200, height: 140)
+                                                .cornerRadius(10)
+                                        }
                                     }
                                 }
                                 .padding(.vertical, 8)
@@ -181,9 +191,12 @@ struct ClimbDetailSheet: View {
             loadUserLog()
             loadAllVideos()
         }
+        .fullScreenCover(item: $fullscreenVideo) { item in
+            FullscreenVideoPlayer(videoURL: item.url)
+        }
     }
 
-    // MARK: - Handle Log Submission
+    // MARK: - Submit Log
     private func submitLog() {
         guard let user = auth.user else {
             message = "You must be logged in to log a climb."
@@ -275,16 +288,55 @@ struct ClimbDetailSheet: View {
     }
 }
 
-// MARK: - Video Player View
-struct VideoPlayerView: View {
+// MARK: - Inline Video Preview
+struct VideoThumbnailView: View {
     let videoURL: URL
+    var body: some View {
+        ZStack {
+            VideoPlayer(player: AVPlayer(url: videoURL))
+                .onAppear { AVPlayer(url: videoURL).pause() }
+            Image(systemName: "play.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 35, height: 35) // 🎯 smaller and cleaner
+                .foregroundColor(.white)
+                .shadow(radius: 4)
+        }
+    }
+}
+
+// MARK: - Fullscreen Player
+struct FullscreenVideoPlayer: View {
+    let videoURL: URL
+    @Environment(\.dismiss) var dismiss
+    @State private var player: AVPlayer? = nil
 
     var body: some View {
-        VideoPlayer(player: AVPlayer(url: videoURL))
-            .cornerRadius(10)
-            .onDisappear {
-                // Stop playback when leaving the view
-                AVPlayer(url: videoURL).pause()
+        NavigationView {
+            if let player = player {
+                VideoPlayer(player: player)
+                    .onAppear { player.play() }
+                    .onDisappear {
+                        player.pause()
+                        player.replaceCurrentItem(with: nil) // 🧹 stop playback when dismissed
+                    }
+                    .edgesIgnoringSafeArea(.all)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") {
+                                player.pause()
+                                player.replaceCurrentItem(with: nil)
+                                dismiss()
+                            }
+                            .bold()
+                        }
+                    }
+            } else {
+                ProgressView("Loading video...")
+                    .onAppear {
+                        player = AVPlayer(url: videoURL)
+                    }
             }
+        }
     }
 }
