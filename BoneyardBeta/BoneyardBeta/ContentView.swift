@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var listener: ListenerRegistration?
     @State private var activeMap: String = "front"
     @State private var selectedTagFilters: Set<String> = []
+    @State private var selectedSectionFilters: Set<String> = []
     @State private var showFilterSheet = false
 
     @State private var isEditMode = false
@@ -88,21 +89,27 @@ struct ContentView: View {
                             .frame(width: mapWidth, height: mapHeight)
 
                         ForEach($climbs.filter {
-                            let climb = $0.wrappedValue
-                            // Wall filtering
-                            let sectionMatch: Bool
+                            climbBinding in
+                            let climb = climbBinding.wrappedValue
+
+                            // --- Safely unwrap section ---
+                            let section = climb.section?.lowercased() ?? ""
+
+                            // --- Wall filtering based on active map ---
+                            let wallMatch: Bool
                             if activeMap == "front" {
-                                sectionMatch = ["front", "cave", "slab"].contains(climb.section?.lowercased() ?? "")
+                                wallMatch = ["front", "cave", "slab"].contains(section)
                             } else {
-                                sectionMatch = ["back", "roof"].contains(climb.section?.lowercased() ?? "")
+                                wallMatch = ["back", "roof"].contains(section)
                             }
-                            // Tag filtering
-                            if selectedTagFilters.isEmpty {
-                                return sectionMatch
-                            } else {
-                                return sectionMatch && selectedTagFilters.contains(climb.grade)
-                            }
-                        }) { $climb in
+
+                            let sectionFilterMatch = selectedSectionFilters.isEmpty || selectedSectionFilters.contains(section)
+
+                            // --- Tag filtering ---
+                            let tagFilterMatch = selectedTagFilters.isEmpty || selectedTagFilters.contains(climb.grade)
+
+                            // --- Final combined logic ---
+                            return wallMatch && sectionFilterMatch && tagFilterMatch                        }) { $climb in
                             climbCircle(for: $climb)
                         }
                     }
@@ -246,11 +253,14 @@ struct ContentView: View {
             .sheet(isPresented: $showFilterSheet) {
                 NavigationView {
                     List {
+                        // =====================================================
+                        // MARK: - Filter by Grade Tag
+                        // =====================================================
                         Section(header: Text("Filter by Grade Tag")) {
                             Button {
                                 selectedTagFilters.removeAll()
                             } label: {
-                                Label("Show All", systemImage: selectedTagFilters.isEmpty ? "checkmark.circle.fill" : "circle")
+                                Label("Show All Tags", systemImage: selectedTagFilters.isEmpty ? "checkmark.circle.fill" : "circle")
                             }
 
                             ForEach([
@@ -274,6 +284,34 @@ struct ContentView: View {
                                         Spacer()
                                         Image(systemName: selectedTagFilters.contains(tag) ? "checkmark.circle.fill" : "circle")
                                             .foregroundColor(selectedTagFilters.contains(tag) ? .blue : .gray)
+                                    }
+                                }
+                            }
+                        }
+
+                        // =====================================================
+                        // MARK: - Filter by Section
+                        // =====================================================
+                        Section(header: Text("Filter by Section")) {
+                            Button {
+                                selectedSectionFilters.removeAll()
+                            } label: {
+                                Label("Show All Sections", systemImage: selectedSectionFilters.isEmpty ? "checkmark.circle.fill" : "circle")
+                            }
+
+                            ForEach(["front", "back", "cave", "roof", "slab"], id: \.self) { section in
+                                Button {
+                                    if selectedSectionFilters.contains(section) {
+                                        selectedSectionFilters.remove(section)
+                                    } else {
+                                        selectedSectionFilters.insert(section)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(section.capitalized)
+                                        Spacer()
+                                        Image(systemName: selectedSectionFilters.contains(section) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(selectedSectionFilters.contains(section) ? .blue : .gray)
                                     }
                                 }
                             }
@@ -426,21 +464,14 @@ struct ContentView: View {
     }
     private func filteredClimbs() -> [Climb] {
         climbs.filter { climb in
-            // Filter by active map section first
-            let sectionMatch: Bool
-            if activeMap == "front" {
-                sectionMatch = ["front", "cave", "slab"].contains(climb.section?.lowercased() ?? "")
-            } else {
-                sectionMatch = ["back", "roof"].contains(climb.section?.lowercased() ?? "")
-            }
+            // --- Filter by Tag ---
+            let matchesTag = selectedTagFilters.isEmpty || selectedTagFilters.contains(climb.grade)
 
-            // If no filters selected, return all climbs for this map
-            guard !selectedTagFilters.isEmpty else {
-                return sectionMatch
-            }
+            // --- Filter by Section ---
+            let section = climb.section ?? ""
+            let matchesSection = selectedSectionFilters.isEmpty || selectedSectionFilters.contains(section)
 
-            // Otherwise, match climbs whose grade is in selected filters
-            return sectionMatch && selectedTagFilters.contains(climb.grade)
+            return matchesTag && matchesSection
         }
     }
     // MARK: - Gestures
