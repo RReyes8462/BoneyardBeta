@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var climbs: [Climb] = []
     @State private var listener: ListenerRegistration?
     @State private var activeMap: String = "front"
+    @State private var selectedTagFilters: Set<String> = []
+    @State private var showFilterSheet = false
 
     @State private var isEditMode = false
     @State private var selectedClimb: Climb?
@@ -86,10 +88,19 @@ struct ContentView: View {
                             .frame(width: mapWidth, height: mapHeight)
 
                         ForEach($climbs.filter {
+                            let climb = $0.wrappedValue
+                            // Wall filtering
+                            let sectionMatch: Bool
                             if activeMap == "front" {
-                                return ["front", "cave", "slab"].contains($0.wrappedValue.section?.lowercased() ?? "front")
+                                sectionMatch = ["front", "cave", "slab"].contains(climb.section?.lowercased() ?? "")
                             } else {
-                                return ["back", "roof"].contains($0.wrappedValue.section?.lowercased() ?? "back")
+                                sectionMatch = ["back", "roof"].contains(climb.section?.lowercased() ?? "")
+                            }
+                            // Tag filtering
+                            if selectedTagFilters.isEmpty {
+                                return sectionMatch
+                            } else {
+                                return sectionMatch && selectedTagFilters.contains(climb.grade)
                             }
                         }) { $climb in
                             climbCircle(for: $climb)
@@ -232,6 +243,51 @@ struct ContentView: View {
                     .environmentObject(auth)
                 }
             }
+            .sheet(isPresented: $showFilterSheet) {
+                NavigationView {
+                    List {
+                        Section(header: Text("Filter by Grade Tag")) {
+                            Button {
+                                selectedTagFilters.removeAll()
+                            } label: {
+                                Label("Show All", systemImage: selectedTagFilters.isEmpty ? "checkmark.circle.fill" : "circle")
+                            }
+
+                            ForEach([
+                                "Blue Tag (VB–V0)",
+                                "Red Tag (V0–V2)",
+                                "Yellow Tag (V2–4)",
+                                "Green Tag (V4–6)",
+                                "Purple Tag (V6–8)",
+                                "Pink Tag (V8+)",
+                                "White Tag (Ungraded)"
+                            ], id: \.self) { tag in
+                                Button {
+                                    if selectedTagFilters.contains(tag) {
+                                        selectedTagFilters.remove(tag)
+                                    } else {
+                                        selectedTagFilters.insert(tag)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(tag)
+                                        Spacer()
+                                        Image(systemName: selectedTagFilters.contains(tag) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(selectedTagFilters.contains(tag) ? .blue : .gray)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .navigationTitle("Filter Climbs")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showFilterSheet = false }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -316,6 +372,14 @@ struct ContentView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
                 Spacer()
+                Button {
+                    showFilterSheet = true
+                } label: {
+                    Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 22))
+                        .padding(.trailing)
+                }
             }
 
             if climbs.isEmpty {
@@ -326,7 +390,7 @@ struct ContentView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(climbs) { climb in
+                        ForEach(filteredClimbs()) { climb in
                             Button {
                                 if selectedClimb?.id == climb.id {
                                     showDetailSheet = true
@@ -360,7 +424,25 @@ struct ContentView: View {
         }
         .frame(height: geo.size.height * 0.5)
     }
+    private func filteredClimbs() -> [Climb] {
+        climbs.filter { climb in
+            // Filter by active map section first
+            let sectionMatch: Bool
+            if activeMap == "front" {
+                sectionMatch = ["front", "cave", "slab"].contains(climb.section?.lowercased() ?? "")
+            } else {
+                sectionMatch = ["back", "roof"].contains(climb.section?.lowercased() ?? "")
+            }
 
+            // If no filters selected, return all climbs for this map
+            guard !selectedTagFilters.isEmpty else {
+                return sectionMatch
+            }
+
+            // Otherwise, match climbs whose grade is in selected filters
+            return sectionMatch && selectedTagFilters.contains(climb.grade)
+        }
+    }
     // MARK: - Gestures
     func magnificationGesture(in geo: GeometryProxy) -> some Gesture {
         MagnificationGesture()
