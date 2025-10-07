@@ -58,7 +58,7 @@ struct ClimbDetailSheet: View {
                     HStack {
                         Text("Ascents: \(localAscentCount)")
                         Spacer()
-                        Text("Avg Rating: \(String(format: "%.1f", localAvgRating)) ⭐️")
+                        Text("Avg Rating: \(String(format: "%.1f", localAvgRating)) ⭐️")
                     }
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -121,7 +121,6 @@ struct ClimbDetailSheet: View {
                     // MARK: Recent Logs
                     // ====================================================
 
-                    // MARK: Recent Logs
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Recent Logs")
                             .font(.headline)
@@ -131,11 +130,12 @@ struct ClimbDetailSheet: View {
                                 .foregroundColor(.secondary)
                         } else {
                             ForEach(climbLogs.prefix(5)) { log in
-                                DynamicLogRow(log: log)
+                                DynamicLogRow(log: log, climbID: climb.id ?? "")
                                 Divider()
                             }
                         }
                     }
+
                     Divider()
 
                     // ====================================================
@@ -153,9 +153,9 @@ struct ClimbDetailSheet: View {
                                 .padding(.bottom, 6)
                         }
 
-                        let options = gradeOptionsForTag(climb.grade)
+                        let allowedGrades = gradeOptionsForTag(climb.grade)
 
-                        ForEach(options, id: \.self) { option in
+                        ForEach(allowedGrades, id: \.self) { option in
                             HStack {
                                 Button {
                                     guard canVote else { return }
@@ -269,39 +269,6 @@ struct ClimbDetailSheet: View {
                     uploadVideo(url)
                 }
             }
-            // Upload overlay
-            .overlay(alignment: .center) {
-                if isUploading {
-                    VStack(spacing: 10) {
-                        ProgressView(value: uploadProgress, total: 1.0)
-                            .frame(width: 200)
-                        Text("Uploadingâ€¦ \(Int(uploadProgress * 100))%")
-                    }
-                    .padding(30)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(16)
-                }
-            }
-            // Toasts
-            .overlay(alignment: .bottom) {
-                VStack {
-                    if showSentToast {
-                        Text("âœ… Sent!")
-                            .padding()
-                            .background(Color.green.opacity(0.9))
-                            .cornerRadius(12)
-                    }
-                    if showBetaToast {
-                        Text("âœ… Beta Uploaded!")
-                            .padding()
-                            .background(Color.blue.opacity(0.9))
-                            .cornerRadius(12)
-                    }
-                }
-                .foregroundColor(.white)
-                .padding(.bottom, 40)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
         }
         .alert("Delete Beta Video?",
                isPresented: $showDeleteConfirm,
@@ -324,7 +291,6 @@ struct ClimbDetailSheet: View {
             loadUserLog()
         }
     }
-
     // ============================================================
     // MARK: - Helpers
     // ============================================================
@@ -446,18 +412,23 @@ struct ClimbDetailSheet: View {
 // ============================================================
 // MARK: - Comments Section (real-time + dynamic profiles)
 // ============================================================
+
 struct DynamicLogRow: View {
     var log: ClimbLog
+    var climbID: String
+
     @State private var displayName: String = "Loading..."
     @State private var photoURL: String = ""
+    @State private var gradeVote: String? = nil
+
     private let db = Firestore.firestore()
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             // Profile Picture
             if let url = URL(string: photoURL), !photoURL.isEmpty {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
+                AsyncImage(url: url) { img in
+                    img.resizable().scaledToFill()
                 } placeholder: {
                     Circle().fill(Color.gray.opacity(0.3))
                 }
@@ -469,15 +440,25 @@ struct DynamicLogRow: View {
                     .overlay(Image(systemName: "person.fill").font(.footnote))
             }
 
-            // Log Content
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(displayName)
                         .font(.subheadline.bold())
                     Spacer()
-                    Text("\(log.rating)⭐")
-                        .foregroundColor(.yellow)
+                    HStack(spacing: 4) {
+                        Text("\(log.rating)⭐️")
+                            .foregroundColor(.yellow)
+                        if let grade = gradeVote {
+                            Text(grade)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 4)
+                                .background(Color.gray.opacity(0.15))
+                                .cornerRadius(4)
+                        }
+                    }
                 }
+
                 Text(log.comment)
                     .font(.footnote)
                 Text(log.timestamp, style: .date)
@@ -485,7 +466,10 @@ struct DynamicLogRow: View {
                     .foregroundColor(.secondary)
             }
         }
-        .onAppear { fetchUserProfile() }
+        .onAppear {
+            fetchUserProfile()
+            fetchUserVote()
+        }
     }
 
     private func fetchUserProfile() {
@@ -496,8 +480,16 @@ struct DynamicLogRow: View {
                 photoURL = data["photoURL"] as? String ?? ""
             }
     }
-}
 
+    private func fetchUserVote() {
+        db.collection("climbs").document(climbID)
+            .collection("gradeVotes")
+            .whereField("userID", isEqualTo: log.userID)
+            .addSnapshotListener { snap, _ in
+                gradeVote = snap?.documents.first?.data()["gradeVote"] as? String
+            }
+    }
+}
 struct CommentListView: View {
     let climbID: String
     let videoID: String
