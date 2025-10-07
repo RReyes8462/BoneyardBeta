@@ -14,9 +14,9 @@ struct EditClimbView: View {
     
     // Grade options with color-coded tags
     let gradeOptions: [(color: Color, label: String)] = [
-        (.red, "Red Tag (V0–V1)"),
-        (.blue, "Blue Tag (V1–V2)"),
-        (.yellow, "Yellow Tag (V3–4)"),
+        (.red, "Blue Tag (VB–V0)"),
+        (.blue, "Red Tag (V0–V2)"),
+        (.yellow, "Yellow Tag (V2–4)"),
         (.green, "Green Tag (V4–6)"),
         (.purple, "Purple Tag (V6–8)"),
         (.pink, "Pink Tag (V8+)"),
