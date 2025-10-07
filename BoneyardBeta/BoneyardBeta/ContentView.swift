@@ -268,21 +268,18 @@ struct ContentView: View {
         selectedClimb = climb
         highlightedClimbID = climb.id
 
-        let targetZoom = min(max(desiredZoom, minFitZoom), 3.0)
-        let viewCenter = CGPoint(x: geo.size.width / 2,
-                                 y: (geo.size.height * 0.5) / 2)
-        let contentCenter = CGPoint(x: mapWidth / 2, y: mapHeight / 2)
-        let point = CGPoint(x: climb.x, y: climb.y)
-
-        // offset so the climb is centered in the visible top-half viewport
-        let dx = viewCenter.x - (contentCenter.x + targetZoom * (point.x - contentCenter.x))
-        let dy = viewCenter.y - (contentCenter.y + targetZoom * (point.y - contentCenter.y))
-        let newOffset = CGSize(width: dx, height: dy)
+        let s = min(max(desiredZoom, minFitZoom), 3.0)
+        let mapCX = mapWidth  / 2.0
+        let mapCY = mapHeight / 2.0
 
         withAnimation(.easeInOut(duration: 0.5)) {
-            zoom = targetZoom
-            offset = newOffset
-            clampOffset(in: geo)
+            zoom = s
+            // 👇 closed-form: center the climb exactly
+            offset = CGSize(
+                width:  (mapCX - climb.x) * s,
+                height: (mapCY - climb.y) * s
+            )
+            clampOffset(in: geo)      // keeps edges from overscrolling
             lastOffset = offset
         }
 
