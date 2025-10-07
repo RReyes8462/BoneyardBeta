@@ -288,19 +288,49 @@ struct ClimbDetailSheet: View {
     }
 }
 
-// MARK: - Inline Video Preview
+// MARK: - Static Thumbnail View
 struct VideoThumbnailView: View {
     let videoURL: URL
+    @State private var thumbnail: UIImage?
+
     var body: some View {
         ZStack {
-            VideoPlayer(player: AVPlayer(url: videoURL))
-                .onAppear { AVPlayer(url: videoURL).pause() }
+            if let thumbnail = thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Color.black.opacity(0.2)
+                ProgressView()
+                    .onAppear { generateThumbnail() }
+            }
+
             Image(systemName: "play.circle.fill")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 35, height: 35) // 🎯 smaller and cleaner
+                .frame(width: 35, height: 35)
                 .foregroundColor(.white)
                 .shadow(radius: 4)
+        }
+        .clipped()
+    }
+
+    private func generateThumbnail() {
+        DispatchQueue.global().async {
+            let asset = AVAsset(url: videoURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 400, height: 400)
+
+            do {
+                let cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
+                let image = UIImage(cgImage: cgImage)
+                DispatchQueue.main.async {
+                    self.thumbnail = image
+                }
+            } catch {
+                print("❌ Thumbnail generation failed:", error.localizedDescription)
+            }
         }
     }
 }
@@ -318,7 +348,7 @@ struct FullscreenVideoPlayer: View {
                     .onAppear { player.play() }
                     .onDisappear {
                         player.pause()
-                        player.replaceCurrentItem(with: nil) // 🧹 stop playback when dismissed
+                        player.replaceCurrentItem(with: nil)
                     }
                     .edgesIgnoringSafeArea(.all)
                     .toolbar {
