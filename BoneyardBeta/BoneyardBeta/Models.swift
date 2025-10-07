@@ -45,3 +45,16 @@ struct GradeVote: Codable, Identifiable, Equatable {
     var gradeVote: String
 }
 
+struct Comment: Identifiable, Codable {
+    @DocumentID var id: String?
+    var userID: String
+    var text: String
+    var timestamp: Date
+}
+struct VideoData: Identifiable, Codable{
+    var id: String
+    var url: String
+    var uploaderID: String
+    var uploaderEmail: String
+    var likes: [String]
+}

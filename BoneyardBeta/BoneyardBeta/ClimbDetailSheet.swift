@@ -1,56 +1,43 @@
 import SwiftUI
 import Firebase
-import AVKit
-import PhotosUI
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
+import AVKit
+import PhotosUI
 
-// MARK: - Video Model
-struct VideoData: Identifiable {
-    var id: String
-    var url: String
-    var uploaderID: String
-    var uploaderEmail: String
-    var likes: [String]
-    var comments: [[String: Any]]
-}
-
+// ============================================================
 // MARK: - Main Climb Detail Sheet
+// ============================================================
+
 struct ClimbDetailSheet: View {
     var climb: Climb
     var onClose: () -> Void
-    @State private var gradeVotes: [GradeVote] = []
-    @State private var userVote: String? = nil
-    @State private var canVote = false
-    @State private var videoToDelete: VideoData? = nil
-    @State private var showDeleteConfirm = false
 
     @EnvironmentObject var firebase: FirebaseManager
     @EnvironmentObject var auth: AuthManager
 
-    @State private var fullscreenVideo: VideoItem?
-    @State private var allVideos: [VideoData] = []
+    // Logs + votes
     @State private var climbLogs: [ClimbLog] = []
-
-    // Log form state
-    @State private var userLog: ClimbLog? = nil
+    @State private var gradeVotes: [GradeVote] = []
+    @State private var userVote: String? = nil
+    @State private var canVote = false
     @State private var hasLogged = false
+    @State private var userLog: ClimbLog? = nil
+    @State private var localAvgRating: Double = 0.0
+    @State private var localAscentCount: Int = 0
     @State private var rating: Int = 0
     @State private var commentText: String = ""
 
-    // Video comment text per video
-    @State private var commentTexts: [String: String] = [:] // ✅ separate comments per video
-
-    // Video upload state
+    // Videos + comments
+    @State private var fullscreenVideo: VideoItem?
+    @State private var allVideos: [VideoData] = []
     @State private var showVideoPicker = false
     @State private var selectedVideoURL: URL?
     @State private var isUploading = false
     @State private var uploadProgress: Double = 0.0
-
-    // Local stats
-    @State private var localAvgRating: Double = 0.0
-    @State private var localAscentCount: Int = 0
+    @State private var videoToDelete: VideoData? = nil
+    @State private var showDeleteConfirm = false
 
     // Toasts
     @State private var showSentToast = false
@@ -61,7 +48,7 @@ struct ClimbDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
 
-                    // MARK: Climb Info
+                    // MARK: Header
                     Text(climb.name)
                         .font(.title.bold())
                     Text(climb.grade)
@@ -71,31 +58,23 @@ struct ClimbDetailSheet: View {
                     HStack {
                         Text("Ascents: \(localAscentCount)")
                         Spacer()
-                        Text("Avg Rating: \(String(format: "%.1f", localAvgRating)) ⭐️")
+                        Text("Avg Rating: \(String(format: "%.1f", localAvgRating)) ⭐️")
                     }
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                    .animation(.easeInOut(duration: 0.3), value: localAscentCount)
-                    .animation(.easeInOut(duration: 0.3), value: localAvgRating)
 
                     Divider()
 
-                    // MARK: Log or Edit Ascent
+                    // ====================================================
+                    // MARK: Log an Ascent
+                    // ====================================================
+
                     VStack(alignment: .leading, spacing: 8) {
                         Text(hasLogged ? "Edit Your Ascent Log" : "Log an Ascent")
                             .font(.headline)
-                        if canVote, let vote = userVote {
-                            HStack {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .foregroundColor(.blue)
-                                Text("You voted: \(vote)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.top, 4)
-                        }
+
                         if hasLogged {
-                            Text("You’ve already logged this climb. You can update your rating or comment below.")
+                            Text("You've already logged this climb. You can update your rating or comment below.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -117,47 +96,15 @@ struct ClimbDetailSheet: View {
                                     for: climb,
                                     rating: rating,
                                     comment: commentText,
-                                    user: user,
-                                    completion: {
-
-                                        // Optimistic local update
-                                        if let i = climbLogs.firstIndex(where: { $0.userID == user.uid }) {
-                                            climbLogs[i].rating = rating
-                                            climbLogs[i].comment = commentText
-                                            climbLogs[i].timestamp = Date()
-                                        } else {
-                                            climbLogs.insert(ClimbLog(
-                                                id: user.uid,
-                                                userID: user.uid,
-                                                email: user.email ?? "unknown",
-                                                comment: commentText,
-                                                rating: rating,
-                                                timestamp: Date()
-                                            ), at: 0)
-                                        }
-
-                                        let ratings = climbLogs.map { $0.rating }
-                                        let ascentCount = ratings.count
-                                        let avgRating = Double(ratings.reduce(0, +)) / Double(ascentCount)
-                                        localAvgRating = avgRating
-                                        localAscentCount = ascentCount
-
-                                        // Sync to Firestore
-                                        if let climbID = climb.id {
-                                            firebase.db.collection("climbs").document(climbID).updateData([
-                                                "avgRating": avgRating,
-                                                "ascentCount": ascentCount
-                                            ])
-                                        }
+                                    user: user
+                                ) {
+                                    hasLogged = true
+                                    showSentToast = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                        withAnimation { showSentToast = false }
                                     }
-                                )
-
-                                hasLogged = true
-                                showSentToast = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                    withAnimation { showSentToast = false }
+                                    hideKeyboard()
                                 }
-                                hideKeyboard()
                             }
                         }) {
                             Label(hasLogged ? "Update Log" : "Submit Log",
@@ -169,48 +116,35 @@ struct ClimbDetailSheet: View {
 
                     Divider()
 
+                    // ====================================================
+                    // MARK: Recent Logs
+                    // ====================================================
+
                     // MARK: Recent Logs
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Recent Logs")
                             .font(.headline)
+                        
                         if climbLogs.isEmpty {
                             Text("No logs yet. Be the first to send it!")
                                 .foregroundColor(.secondary)
                         } else {
                             ForEach(climbLogs.prefix(5)) { log in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(log.email)
-                                            .font(.subheadline.bold())
-                                        Spacer()
-                                        Text("\(log.rating)⭐")
-                                            .foregroundColor(.yellow)
-                                    }
-                                    Text(log.comment)
-                                        .font(.footnote)
-                                    Text(log.timestamp, style: .date)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.vertical, 4)
+                                DynamicLogRow(log: log)
                                 Divider()
                             }
                         }
                     }
                     Divider()
-                    // MARK: Grade Consensus Poll
+
+                    // ====================================================
+                    // MARK: Community Grade Consensus
+                    // ====================================================
+
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Community Grade Consensus")
                             .font(.headline)
 
-                        let gradeOptions = climb.grade.contains("Pink Tag (V8+)") ? ["V8", "V9", "V10+"] :
-                                           climb.grade.contains("Purple Tag (V6–8)") ? ["V6", "V7", "V8"] :
-                                           climb.grade.contains("Green Tag (V4–6)") ? ["V4", "V5", "V6"] :
-                                           climb.grade.contains("Yellow Tag (V2–4)") ? ["V2", "V3", "V4"] :
-                                           climb.grade.contains("Red Tag (V0–V2)") ? ["V0", "V1", "V2"] :
-                                           climb.grade.contains("Blue Tag (VB–V0)") ? ["V0", "V1"] :
-                                           climb.grade.contains("White Tag (Ungraded)") ? ["V0", "V1"] :
-                                           ["Ungraded"]
                         if !canVote {
                             Text("Log a send to cast your grade opinion!")
                                 .font(.subheadline)
@@ -218,14 +152,14 @@ struct ClimbDetailSheet: View {
                                 .padding(.bottom, 6)
                         }
 
-                        ForEach(gradeOptions, id: \.self) { option in
+                        let options = gradeOptionsForTag(climb.grade)
+
+                        ForEach(options, id: \.self) { option in
                             HStack {
                                 Button {
                                     guard canVote else { return }
                                     if let user = auth.user {
-                                        firebase.submitGradeVote(for: climb.id ?? "", vote: option, user: user) {
-                                            loadGradeVotes()
-                                        }
+                                        firebase.submitGradeVote(for: climb.id ?? "", vote: option, user: user) {}
                                     }
                                 } label: {
                                     Text(option)
@@ -234,22 +168,16 @@ struct ClimbDetailSheet: View {
                                         .padding(.vertical, 6)
                                         .background(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .fill(userVote == option
-                                                      ? Color.blue
-                                                      : (canVote ? Color.gray.opacity(0.2)
-                                                                 : Color.gray.opacity(0.1)))
+                                                .fill(userVote == option ? Color.blue : Color.gray.opacity(0.2))
                                         )
-                                        .foregroundColor(canVote ? (userVote == option ? .white : .primary)
-                                                                 : .gray)
+                                        .foregroundColor(userVote == option ? .white : .primary)
                                 }
                                 .disabled(!canVote)
 
-                                // progress bar
                                 GeometryReader { geo in
                                     RoundedRectangle(cornerRadius: 4)
                                         .fill(Color.blue.opacity(0.3))
                                         .frame(width: geo.size.width * CGFloat(votePercent(option)), height: 8)
-                                        .animation(.easeInOut(duration: 0.3), value: gradeVotes)
                                 }
                                 .frame(height: 8)
                                 Text("\(Int(votePercent(option) * 100))%")
@@ -262,7 +190,10 @@ struct ClimbDetailSheet: View {
 
                     Divider()
 
-                    // MARK: Beta Videos
+                    // ====================================================
+                    // MARK: Beta Videos + Comments
+                    // ====================================================
+
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Beta Videos")
                             .font(.headline)
@@ -293,10 +224,7 @@ struct ClimbDetailSheet: View {
                                                 Text("\(video.likes.count)")
                                             }
                                         }
-                                        .buttonStyle(BorderlessButtonStyle())
-
                                         Spacer()
-
                                         if video.uploaderID == auth.user?.uid {
                                             Button(role: .destructive) {
                                                 videoToDelete = video
@@ -307,39 +235,10 @@ struct ClimbDetailSheet: View {
                                         }
                                     }
 
-                                    // MARK: Video Comments (per video)
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        ForEach(Array(video.comments.enumerated()), id: \.offset) { _, comment in
-                                            if let text = comment["text"] as? String,
-                                               let email = comment["email"] as? String {
-                                                Text("\(email): \(text)")
-                                                    .font(.footnote)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                        }
+                                    CommentListView(climbID: climb.id ?? "", videoID: video.id)
+                                        .environmentObject(firebase)
+                                        .environmentObject(auth)
 
-                                        HStack {
-                                            TextField(
-                                                "Add a comment...",
-                                                text: Binding(
-                                                    get: { commentTexts[video.id] ?? "" },
-                                                    set: { commentTexts[video.id] = $0 }
-                                                )
-                                            )
-                                            .textFieldStyle(RoundedBorderTextFieldStyle())
-
-                                            Button("Post") {
-                                                guard let user = auth.user else { return }
-                                                let text = commentTexts[video.id] ?? ""
-                                                guard !text.isEmpty else { return }
-
-                                                firebase.addComment(for: climb.id ?? "", videoID: video.id, text: text, user: user) { _ in
-                                                    commentTexts[video.id] = ""
-                                                    hideKeyboard() // ✅ dismiss keyboard
-                                                }
-                                            }
-                                        }
-                                    }
                                     Divider()
                                 }
                                 .padding(.vertical, 6)
@@ -347,7 +246,6 @@ struct ClimbDetailSheet: View {
                         }
                     }
 
-                    // MARK: Upload New Video
                     Button {
                         showVideoPicker = true
                     } label: {
@@ -357,7 +255,6 @@ struct ClimbDetailSheet: View {
                 }
                 .padding()
             }
-            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(climb.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -366,161 +263,156 @@ struct ClimbDetailSheet: View {
             .sheet(item: $fullscreenVideo) { video in
                 AVPlayerView(url: video.url)
             }
-            .onAppear {
-                localAvgRating = climb.avgRating
-                localAscentCount = climb.ascentCount
-                loadAllVideos()
-                loadClimbLogs()
-                loadUserLog()
-                listenForClimbUpdates()
-                loadGradeVotes()
-            }
             .sheet(isPresented: $showVideoPicker) {
                 VideoPicker(selectedVideoURL: $selectedVideoURL) { url in
                     uploadVideo(url)
                 }
             }
-            // MARK: - Overlays
+            // Upload overlay
             .overlay(alignment: .center) {
                 if isUploading {
                     VStack(spacing: 10) {
                         ProgressView(value: uploadProgress, total: 1.0)
-                            .progressViewStyle(.linear)
                             .frame(width: 200)
-                            .tint(.blue)
-                        Text("Uploading… \(Int(uploadProgress * 100))%")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
+                        Text("Uploadingâ€¦ \(Int(uploadProgress * 100))%")
                     }
                     .padding(30)
                     .background(.ultraThinMaterial)
                     .cornerRadius(16)
-                    .shadow(radius: 10)
                 }
             }
+            // Toasts
             .overlay(alignment: .bottom) {
-                if showSentToast {
-                    Text("✅ Sent!")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.green.opacity(0.9))
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                        .padding(.bottom, 30)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                VStack {
+                    if showSentToast {
+                        Text("âœ… Sent!")
+                            .padding()
+                            .background(Color.green.opacity(0.9))
+                            .cornerRadius(12)
+                    }
+                    if showBetaToast {
+                        Text("âœ… Beta Uploaded!")
+                            .padding()
+                            .background(Color.blue.opacity(0.9))
+                            .cornerRadius(12)
+                    }
                 }
-                if showBetaToast {
-                    Text("✅ Beta Uploaded!")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.blue.opacity(0.9))
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                        .padding(.bottom, 80)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-        }.alert("Delete Beta Video?",
-                isPresented: $showDeleteConfirm,
-                presenting: videoToDelete) { video in
-             Button("Delete", role: .destructive) {
-                 firebase.deleteVideo(for: climb.id ?? "", videoID: video.id, videoURL: video.url) { _ in
-                     videoToDelete = nil
-                 }
-             }
-             Button("Cancel", role: .cancel) {
-                 videoToDelete = nil
-             }
-         } message: { video in
-             Text("This will permanently delete your beta video uploaded by \(video.uploaderEmail).")
-         }
-    }
-
-    // MARK: - Upload Video with Progress
-    private func uploadVideo(_ url: URL) {
-        guard let climbID = climb.id else { return }
-
-        let filename = "videos/\(UUID().uuidString).mp4"
-        let ref = Storage.storage().reference().child(filename)
-
-        isUploading = true
-        uploadProgress = 0.0
-        print("📤 Starting upload to Firebase Storage: \(filename)")
-
-        let uploadTask = ref.putFile(from: url, metadata: nil)
-
-        uploadTask.observe(.progress) { snapshot in
-            if let progress = snapshot.progress {
-                uploadProgress = progress.fractionCompleted
+                .foregroundColor(.white)
+                .padding(.bottom, 40)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .alert("Delete Beta Video?",
+               isPresented: $showDeleteConfirm,
+               presenting: videoToDelete) { video in
+            Button("Delete", role: .destructive) {
+                firebase.deleteVideo(for: climb.id ?? "", videoID: video.id, videoURL: video.url) { _ in
+                    videoToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { videoToDelete = nil }
+        } message: { video in
+            Text("This will permanently delete your beta video.")
+        }
+        .onAppear {
+            localAvgRating = climb.avgRating
+            localAscentCount = climb.ascentCount
+            loadAllVideos()
+            listenToLogs()
+            listenToGradeVotes()
+            loadUserLog()
+        }
+    }
 
+    // ============================================================
+    // MARK: - Helpers
+    // ============================================================
+    private func gradeOptionsForTag(_ tag: String) -> [String] {
+        if tag.contains("Pink Tag (V8+)") { return ["V8", "V9", "V10+"] }
+        if tag.contains("Purple Tag (V6–8)") || tag.contains("Purple Tag (V6-8)") { return ["V6", "V7", "V8"] }
+        if tag.contains("Green Tag (V4–6)") || tag.contains("Green Tag (V4-6)") { return ["V4", "V5", "V6"] }
+        if tag.contains("Yellow Tag (V2–4)") || tag.contains("Yellow Tag (V2-4)") { return ["V2", "V3", "V4"] }
+        if tag.contains("Red Tag (V0–V2)") || tag.contains("Red Tag (V0-2)") { return ["V0", "V1", "V2"] }
+        if tag.contains("Blue Tag (VB–V0)") || tag.contains("Blue Tag (VB-V0)") { return ["VB", "V0"] }
+        if tag.contains("White Tag (Ungraded)") { return ["VB-0", "V0-V2", "V2-4", "V4-6", "V6-8", "V8+"] }
+        return ["Ungraded"]
+    }
+
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
+    }
+
+    private func uploadVideo(_ url: URL) {
+        guard let climbID = climb.id else { return }
+        let filename = "videos/\(UUID().uuidString).mp4"
+        let ref = Storage.storage().reference().child(filename)
+        isUploading = true
+        uploadProgress = 0
+
+        let uploadTask = ref.putFile(from: url, metadata: nil)
+        uploadTask.observe(.progress) { snapshot in
+            uploadProgress = snapshot.progress?.fractionCompleted ?? 0
+        }
         uploadTask.observe(.success) { _ in
-            print("✅ Upload success, fetching download URL...")
-            ref.downloadURL { videoURL, err in
-                if let err = err {
-                    print("❌ Failed to get video URL:", err.localizedDescription)
-                    withAnimation { isUploading = false }
-                    return
-                }
-
-                guard let videoURL = videoURL else {
-                    print("❌ Video URL is nil.")
-                    withAnimation { isUploading = false }
-                    return
-                }
-
+            ref.downloadURL { videoURL, _ in
+                guard let videoURL = videoURL else { return }
                 firebase.saveVideoMetadata(for: climbID, url: videoURL.absoluteString) { success in
                     withAnimation { isUploading = false }
                     if success {
-                        print("✅ Video metadata saved for climb \(climbID).")
                         loadAllVideos()
                         showBetaToast = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             withAnimation { showBetaToast = false }
                         }
-                    } else {
-                        print("❌ Failed to save video metadata.")
                     }
                 }
             }
         }
-
-        uploadTask.observe(.failure) { snapshot in
-            if let err = snapshot.error {
-                print("❌ Upload failed:", err.localizedDescription)
-            }
+        uploadTask.observe(.failure) { _ in
             withAnimation { isUploading = false }
         }
     }
-
-    // MARK: - Firestore Listeners + Loaders
-    private func listenForClimbUpdates() {
+    
+    private func loadAllVideos() {
         guard let climbID = climb.id else { return }
         firebase.db.collection("climbs").document(climbID)
-            .addSnapshotListener { snapshot, _ in
-                guard let data = snapshot?.data() else { return }
-                if let updatedAscentCount = data["ascentCount"] as? Int,
-                   let updatedAvgRating = data["avgRating"] as? Double {
-                    withAnimation {
-                        localAscentCount = updatedAscentCount
-                        localAvgRating = updatedAvgRating
-                    }
+            .collection("videos")
+            .order(by: "timestamp", descending: true)
+            .addSnapshotListener { snap, _ in
+                guard let docs = snap?.documents else { return }
+                allVideos = docs.map { doc in
+                    let d = doc.data()
+                    return VideoData(
+                        id: doc.documentID,
+                        url: d["url"] as? String ?? "",
+                        uploaderID: d["uploaderID"] as? String ?? "",
+                        uploaderEmail: d["uploaderEmail"] as? String ?? "",
+                        likes: d["likes"] as? [String] ?? []
+                    )
                 }
             }
     }
 
-    private func loadClimbLogs() {
+    private func listenToLogs() {
         guard let climbID = climb.id else { return }
-        firebase.db.collection("climbs").document(climbID)
-            .collection("logs")
-            .order(by: "timestamp", descending: true)
-            .addSnapshotListener { snap, _ in
-                guard let docs = snap?.documents else { return }
-                climbLogs = docs.compactMap { doc -> ClimbLog? in
-                    try? doc.data(as: ClimbLog.self)
-                }
+        firebase.listenForClimbLogs(climbID: climbID) { logs in
+            climbLogs = logs
+            let ratings = logs.map { $0.rating }
+            localAscentCount = ratings.count
+            localAvgRating = ratings.isEmpty ? 0 :
+                Double(ratings.reduce(0, +)) / Double(ratings.count)
+        }
+    }
+
+    private func listenToGradeVotes() {
+        guard let climbID = climb.id else { return }
+        firebase.listenForGradeVotes(climbID: climbID) { votes in
+            gradeVotes = votes
+            if let user = auth.user {
+                userVote = votes.first(where: { $0.userID == user.uid })?.gradeVote
             }
+        }
     }
 
     private func loadUserLog() {
@@ -530,32 +422,15 @@ struct ClimbDetailSheet: View {
         ref.getDocument { doc, _ in
             guard let doc = doc, doc.exists else {
                 hasLogged = false
-                userLog = nil
-                canVote = false   // ❌ cannot vote until logged
+                canVote = false
                 return
             }
-            if let existing = try? doc.data(as: ClimbLog.self) {
-                userLog = existing
+            if let log = try? doc.data(as: ClimbLog.self) {
+                userLog = log
                 hasLogged = true
-                rating = existing.rating
-                commentText = existing.comment
-                canVote = true    // ✅ can vote after logging
+                canVote = true
             }
         }
-    }
-
-    private func loadGradeVotes() {
-        guard let climbID = climb.id else { return }
-        firebase.db.collection("climbs").document(climbID)
-            .collection("gradeVotes")
-            .addSnapshotListener { snap, _ in
-                guard let docs = snap?.documents else { return }
-                gradeVotes = docs.compactMap { try? $0.data(as: GradeVote.self) }
-
-                if let user = auth.user {
-                    userVote = gradeVotes.first(where: { $0.userID == user.uid })?.gradeVote
-                }
-            }
     }
 
     private func votePercent(_ option: String) -> Double {
@@ -564,41 +439,187 @@ struct ClimbDetailSheet: View {
         return count / Double(gradeVotes.count)
     }
 
-    private func loadAllVideos() {
-        guard let climbID = climb.id else { return }
-        firebase.db.collection("climbs").document(climbID)
-            .collection("videos")
-            .order(by: "timestamp", descending: true)
-            .addSnapshotListener { snap, _ in
-                guard let docs = snap?.documents else { return }
-                allVideos = docs.compactMap { doc -> VideoData? in
-                    let d = doc.data()
-                    return VideoData(
-                        id: doc.documentID,
-                        url: d["url"] as? String ?? "",
-                        uploaderID: d["uploaderID"] as? String ?? "",
-                        uploaderEmail: d["uploaderEmail"] as? String ?? "",
-                        likes: d["likes"] as? [String] ?? [],
-                        comments: d["comments"] as? [[String: Any]] ?? []
-                    )
+    struct VideoItem: Identifiable { let id = UUID(); let url: URL }
+}
+
+// ============================================================
+// MARK: - Comments Section (real-time + dynamic profiles)
+// ============================================================
+struct DynamicLogRow: View {
+    var log: ClimbLog
+    @State private var displayName: String = "Loading..."
+    @State private var photoURL: String = ""
+    private let db = Firestore.firestore()
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            // Profile Picture
+            if let url = URL(string: photoURL), !photoURL.isEmpty {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Circle().fill(Color.gray.opacity(0.3))
                 }
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+            } else {
+                Circle().fill(Color.gray.opacity(0.3))
+                    .frame(width: 28, height: 28)
+                    .overlay(Image(systemName: "person.fill").font(.footnote))
+            }
+
+            // Log Content
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(displayName)
+                        .font(.subheadline.bold())
+                    Spacer()
+                    Text("\(log.rating)⭐")
+                        .foregroundColor(.yellow)
+                }
+                Text(log.comment)
+                    .font(.footnote)
+                Text(log.timestamp, style: .date)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .onAppear { fetchUserProfile() }
+    }
+
+    private func fetchUserProfile() {
+        db.collection("users").document(log.userID)
+            .addSnapshotListener { doc, _ in
+                guard let data = doc?.data() else { return }
+                displayName = data["displayName"] as? String ?? "Unknown"
+                photoURL = data["photoURL"] as? String ?? ""
+            }
+    }
+}
+
+struct CommentListView: View {
+    let climbID: String
+    let videoID: String
+    @EnvironmentObject var firebase: FirebaseManager
+    @EnvironmentObject var auth: AuthManager
+    @State private var comments: [Comment] = []
+    @State private var showAll = false
+    @State private var commentText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            let shown = showAll ? comments : Array(comments.prefix(3))
+
+            ForEach(shown) { comment in
+                CommentRowLive(comment: comment, climbID: climbID, videoID: videoID)
+            }
+
+            if comments.count > 3 {
+                Button(showAll ? "Show Less" : "Show More") {
+                    withAnimation { showAll.toggle() }
+                }
+                .font(.footnote)
+                .foregroundColor(.blue)
+            }
+
+            HStack {
+                TextField("Add a comment...", text: $commentText)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                Button("Post") {
+                    guard let user = auth.user, !commentText.isEmpty else { return }
+                    Task {
+                        try? await firebase.addComment(for: climbID, videoID: videoID, text: commentText, user: user)
+                        commentText = ""
+                    }
+                }
+            }
+        }
+        .onAppear {
+            firebase.listenForComments(climbID: climbID, videoID: videoID) { newComments in
+                comments = newComments
+            }
+        }
+    }
+}
+
+// ============================================================
+// MARK: - Individual Comment Row
+// ============================================================
+
+struct CommentRowLive: View {
+    let comment: Comment
+    let climbID: String
+    let videoID: String
+    @EnvironmentObject var firebase: FirebaseManager
+    @EnvironmentObject var auth: AuthManager
+    @State private var displayName = "Loading..."
+    @State private var photoURL: String = ""
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            if let url = URL(string: photoURL), !photoURL.isEmpty {
+                AsyncImage(url: url) { img in
+                    img.resizable().scaledToFill()
+                } placeholder: {
+                    Circle().fill(Color.gray.opacity(0.3))
+                }
+                .frame(width: 26, height: 26)
+                .clipShape(Circle())
+            } else {
+                Circle().fill(Color.gray.opacity(0.3))
+                    .frame(width: 26, height: 26)
+                    .overlay(Image(systemName: "person.fill").font(.footnote))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayName)
+                    .font(.caption.bold())
+                Text(comment.text)
+                    .font(.footnote)
+                Text(relativeTimeString(from: comment.timestamp))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            // delete button for owner
+            if comment.userID == auth.user?.uid {
+                Button {
+                    Task {
+                        try? await firebase.deleteComment(for: climbID,
+                                                          videoID: videoID,
+                                                          commentID: comment.id ?? "")
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                        .font(.system(size: 14))
+                }
+            }
+        }
+        .onAppear { fetchUser() }
+    }
+
+    private func fetchUser() {
+        firebase.db.collection("users").document(comment.userID)
+            .addSnapshotListener { doc, _ in
+                guard let data = doc?.data() else { return }
+                displayName = data["displayName"] as? String ?? "Unknown"
+                photoURL = data["photoURL"] as? String ?? ""
             }
     }
 
-    // MARK: - Dismiss Keyboard Helper
-    private func hideKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    private func relativeTimeString(from date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
-/////////////////////////////////////////////////////
-// MARK: - Video Support Views
-/////////////////////////////////////////////////////
-
-struct VideoItem: Identifiable {
-    let id = UUID()
-    let url: URL
-}
+// ============================================================
+// MARK: - Video Thumbnail & Player
+// ============================================================
 
 struct VideoThumbnailView: View {
     var videoURL: URL
@@ -617,6 +638,7 @@ struct VideoThumbnailView: View {
             }
         }
         .onAppear { generateThumbnail() }
+        .clipped()
     }
 
     private func generateThumbnail() {
@@ -628,9 +650,7 @@ struct VideoThumbnailView: View {
         DispatchQueue.global().async {
             if let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) {
                 let image = UIImage(cgImage: cgImage)
-                DispatchQueue.main.async {
-                    self.thumbnail = image
-                }
+                DispatchQueue.main.async { self.thumbnail = image }
             }
         }
     }
@@ -653,6 +673,10 @@ struct AVPlayerView: View {
     }
 }
 
+// ============================================================
+// MARK: - Video Picker
+// ============================================================
+
 struct VideoPicker: UIViewControllerRepresentable {
     @Binding var selectedVideoURL: URL?
     var onPicked: (URL) -> Void
@@ -672,17 +696,16 @@ struct VideoPicker: UIViewControllerRepresentable {
 
     class Coordinator: NSObject, PHPickerViewControllerDelegate {
         let parent: VideoPicker
-
         init(_ parent: VideoPicker) { self.parent = parent }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             picker.dismiss(animated: true)
             guard let item = results.first?.itemProvider else { return }
-            
             if item.hasItemConformingToTypeIdentifier("public.movie") {
                 item.loadFileRepresentation(forTypeIdentifier: "public.movie") { url, _ in
                     guard let url = url else { return }
-                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
+                    let tmp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("\(UUID().uuidString).mp4")
                     try? FileManager.default.copyItem(at: url, to: tmp)
                     DispatchQueue.main.async {
                         self.parent.selectedVideoURL = tmp

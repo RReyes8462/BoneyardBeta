@@ -18,12 +18,17 @@ struct ContentView: View {
     @State private var showEditSheet = false
     @State private var showDetailSheet = false
 
+    // Sidebar
+    @State private var showSidebar = false
+    @State private var showLogoutConfirm = false
+    @State private var showProfile = false
+
     // Map transform state
     @State private var zoom: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
-    @State private var minFitZoom: CGFloat = 1.0   // computed dynamically
+    @State private var minFitZoom: CGFloat = 1.0
 
     // Layout constants
     let mapWidth: CGFloat = 1000
@@ -32,17 +37,48 @@ struct ContentView: View {
 
     // MARK: - BODY
     var body: some View {
+        NavigationStack {
+            ZStack(alignment: .leading) {
+                // Transparent overlay to close sidebar
+                if showSidebar {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation { showSidebar = false }
+                        }
+                        .zIndex(1)
+                }
+
+                mainContent
+                    .blur(radius: showSidebar ? 5 : 0)
+                    .disabled(showSidebar)
+
+                if showSidebar {
+                    sidebar
+                        .transition(.move(edge: .leading))
+                        .zIndex(2)
+                }
+            }
+            .animation(.easeInOut, value: showSidebar)
+            .alert("Sign Out?", isPresented: $showLogoutConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Sign Out", role: .destructive) {
+                    auth.signOut()
+                }
+            }
+        }
+    }
+
+    // MARK: - MAIN CONTENT
+    private var mainContent: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
 
-                // MARK: - Map (Top Half; fully clipped)
+                // MARK: - Map (Top Half)
                 let topHeight = geo.size.height * 0.5
 
                 ZStack {
-                    // Optional subtle bg
                     Color.black.opacity(0.04)
-
-                    // The canvas that scales/offsets
                     ZStack {
                         Image("ub_layout")
                             .resizable()
@@ -57,8 +93,19 @@ struct ContentView: View {
                     .offset(offset)
                 }
                 .frame(width: geo.size.width, height: topHeight, alignment: .center)
-                .clipped() // ✅ hard clip to top half
-                .contentShape(Rectangle()) // ✅ gestures confined to top half
+                .clipped()
+                .contentShape(Rectangle())
+                .overlay(alignment: .topLeading) {
+                    // Sidebar Button
+                    Button {
+                        withAnimation { showSidebar.toggle() }
+                    } label: {
+                        Image(systemName: "line.horizontal.3")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.primary)
+                            .padding()
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if auth.isAdmin {
                         Button {
@@ -74,7 +121,19 @@ struct ContentView: View {
                 .overlay(alignment: .bottomTrailing) {
                     if auth.isAdmin {
                         Button {
-                            firebase.addClimb(gymID: "urbana boulders", updatedBy: auth.user?.email ?? "Unknown")
+                            let newClimb = Climb(
+                                id: nil,
+                                name: "climbName",
+                                grade: "Ungraded",
+                                color: "gray",
+                                x: 100,
+                                y: 100,
+                                gymID: "urbana boulders",
+                                ascentCount: 0,
+                                avgRating: 0
+                            )
+                            firebase.addClimb(newClimb)
+
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 48))
@@ -87,8 +146,6 @@ struct ContentView: View {
                 .gesture(magnificationGesture(in: geo))
                 .onAppear {
                     listenForClimbs()
-
-                    // compute fit using the actual top-half height
                     let fitW = geo.size.width / mapWidth
                     let fitH = (topHeight) / mapHeight
                     let fit = min(fitW, fitH)
@@ -111,8 +168,6 @@ struct ContentView: View {
                 }
 
                 Divider()
-
-                // MARK: - Bottom Half (Climb List)
                 climbList(geo: geo)
             }
             .onDisappear { listener?.remove() }
@@ -137,6 +192,42 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    // MARK: - SIDEBAR
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            NavigationLink(destination: ProfileView().environmentObject(auth), isActive: $showProfile) {
+                EmptyView()
+            }
+
+            Text("Menu")
+                .font(.headline)
+                .padding(.top, 40)
+                .padding(.horizontal)
+
+            Button {
+                showProfile = true
+                withAnimation { showSidebar = false }
+            } label: {
+                Label("Edit Profile", systemImage: "person.crop.circle")
+                    .padding(.horizontal)
+            }
+
+            Button(role: .destructive) {
+                showLogoutConfirm = true
+                withAnimation { showSidebar = false }
+            } label: {
+                Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                    .padding(.horizontal)
+            }
+
+            Spacer()
+        }
+        .frame(width: 240)
+        .frame(maxHeight: .infinity)
+        .background(Color(.systemGray6))
+        .edgesIgnoringSafeArea(.all)
     }
 
     // MARK: - Individual Climb Circle
@@ -184,12 +275,6 @@ struct ContentView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
                 Spacer()
-                Button(action: { auth.signOut() }) {
-                    Image(systemName: "rectangle.portrait.and.arrow.right.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(.blue)
-                        .padding(.trailing)
-                }
             }
 
             if climbs.isEmpty {
@@ -274,12 +359,11 @@ struct ContentView: View {
 
         withAnimation(.easeInOut(duration: 0.5)) {
             zoom = s
-            // 👇 closed-form: center the climb exactly
             offset = CGSize(
                 width:  (mapCX - climb.x) * s,
                 height: (mapCY - climb.y) * s
             )
-            clampOffset(in: geo)      // keeps edges from overscrolling
+            clampOffset(in: geo)
             lastOffset = offset
         }
 
