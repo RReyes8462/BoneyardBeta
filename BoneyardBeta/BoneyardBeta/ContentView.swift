@@ -11,6 +11,7 @@ struct ContentView: View {
 
     @State private var climbs: [Climb] = []
     @State private var listener: ListenerRegistration?
+    @State private var activeMap: String = "front"
 
     @State private var isEditMode = false
     @State private var selectedClimb: Climb?
@@ -80,11 +81,17 @@ struct ContentView: View {
                 ZStack {
                     Color.black.opacity(0.04)
                     ZStack {
-                        Image("ub_layout")
+                        Image(activeMap == "front" ? "ub_layout" : "ub_layout_back")
                             .resizable()
                             .frame(width: mapWidth, height: mapHeight)
 
-                        ForEach($climbs) { $climb in
+                        ForEach($climbs.filter {
+                            if activeMap == "front" {
+                                return ["front", "cave", "slab"].contains($0.wrappedValue.section?.lowercased() ?? "front")
+                            } else {
+                                return ["back", "roof"].contains($0.wrappedValue.section?.lowercased() ?? "back")
+                            }
+                        }) { $climb in
                             climbCircle(for: $climb)
                         }
                     }
@@ -96,16 +103,21 @@ struct ContentView: View {
                 .clipped()
                 .contentShape(Rectangle())
                 .overlay(alignment: .topLeading) {
-                    // Sidebar Button
-                    Button {
-                        withAnimation { showSidebar.toggle() }
-                    } label: {
-                        Image(systemName: "line.horizontal.3")
-                            .font(.system(size: 28))
-                            .foregroundStyle(.primary)
-                            .padding()
+                    HStack {
+                        // Sidebar button
+                        Button {
+                            withAnimation { showSidebar.toggle() }
+                        } label: {
+                            Image(systemName: "line.horizontal.3")
+                                .font(.system(size: 28))
+                                .foregroundStyle(.primary)
+                                .padding()
+                        }
+
+                        Spacer(minLength: 8)
                     }
                 }
+
                 .overlay(alignment: .topTrailing) {
                     HStack(spacing: 12) {
                         // ✅ Edit button
@@ -130,7 +142,8 @@ struct ContentView: View {
                                     y: 100,
                                     gymID: "urbana boulders",
                                     ascentCount: 0,
-                                    avgRating: 0
+                                    avgRating: 0,
+                                    section: activeMap
                                 )
                                 firebase.addClimb(newClimb)
                             } label: {
@@ -143,6 +156,30 @@ struct ContentView: View {
                     }
                     .padding(.top, 8)
                 }
+                // ===================================================
+                // MARK: - Map Switch Button (Bottom Left)
+                // ===================================================
+                .overlay(alignment: .bottomLeading) {
+                    Button {
+                        withAnimation {
+                            activeMap = (activeMap == "front") ? "back" : "front"
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text(activeMap == "front" ? "Back Wall" : "Front Wall")
+                                .font(.footnote.bold())
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(10)
+                        .shadow(radius: 2)
+                    }
+                    .padding([.leading, .bottom], 12)
+                }
+
                 .gesture(dragGesture(in: geo))
                 .gesture(magnificationGesture(in: geo))
                 .onAppear {
@@ -174,7 +211,10 @@ struct ContentView: View {
             .onDisappear { listener?.remove() }
             .sheet(isPresented: $showEditSheet) {
                 if let climb = selectedClimb {
-                    EditClimbView(climb: climb) { updated in
+                    EditClimbView(
+                        climb: climb,
+                        currentMap: activeMap // 👈 pass which map is visible
+                    ) { updated in
                         firebase.saveClimb(updated)
                         showEditSheet = false
                     } onDelete: {

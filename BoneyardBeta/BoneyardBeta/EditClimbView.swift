@@ -3,16 +3,16 @@ import FirebaseFirestore
 
 struct EditClimbView: View {
     @State var climb: Climb
+    var currentMap: String   // 👈 add this
     var onSave: (Climb) -> Void
     var onDelete: () -> Void
     
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirm = false
     
-    // Available color options
+    // Color and grade options
     let colorOptions = ["red", "orange", "blue", "green", "purple", "yellow", "black", "white"]
     
-    // Grade options with color-coded tags
     let gradeOptions: [(color: Color, label: String)] = [
         (.red, "Blue Tag (VB–V0)"),
         (.blue, "Red Tag (V0–V2)"),
@@ -23,13 +23,28 @@ struct EditClimbView: View {
         (.white, "White Tag (Ungraded)")
     ]
     
+    // ✅ Dynamic section lists
+    let frontSections = ["front", "cave", "slab"]
+    let backSections  = ["back", "roof"]
+    
+    // Helper: picks correct section list
+    private var availableSections: [String] {
+        switch currentMap {
+        case "front": return frontSections
+        case "back":  return backSections
+        default:      return frontSections + backSections
+        }
+    }
+    
     var body: some View {
         NavigationView {
             Form {
+                // ===================================================
+                // MARK: Climb Details
+                // ===================================================
                 Section(header: Text("Climb Details")) {
                     TextField("Name", text: $climb.name)
                     
-                    // Grade picker dropdown
                     Picker("Grade", selection: $climb.grade) {
                         ForEach(gradeOptions, id: \.label) { option in
                             HStack {
@@ -42,7 +57,6 @@ struct EditClimbView: View {
                         }
                     }
                     
-                    // Color picker dropdown
                     Picker("Color", selection: $climb.color) {
                         ForEach(colorOptions, id: \.self) { colorName in
                             HStack {
@@ -54,13 +68,30 @@ struct EditClimbView: View {
                             .tag(colorName)
                         }
                     }
+                    
+                    // ✅ Dynamic Section Picker
+                    Picker("Section", selection: Binding(
+                        get: { climb.section ?? availableSections.first ?? "front" },
+                        set: { climb.section = $0 }
+                    )) {
+                        ForEach(availableSections, id: \.self) { section in
+                            Text(section.capitalized)
+                                .tag(section)
+                        }
+                    }
                 }
                 
+                // ===================================================
+                // MARK: Meta
+                // ===================================================
                 Section(header: Text("Meta")) {
                     Text("Gym: \(climb.gymID)")
                     Text("Updated by: \(climb.updatedBy)")
                 }
                 
+                // ===================================================
+                // MARK: Delete
+                // ===================================================
                 Section {
                     Button(role: .destructive) {
                         showDeleteConfirm = true
@@ -73,9 +104,7 @@ struct EditClimbView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {

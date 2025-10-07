@@ -186,43 +186,28 @@ class FirebaseManager: ObservableObject {
     // MARK: - Climb CRUD Operations (Fix for ContentView)
     // ======================================================
 
-    func addClimb(_ climb: Climb, completion: ((Bool) -> Void)? = nil) {
+    func addClimb(_ climb: Climb) {
+        guard let user = Auth.auth().currentUser else { return }
+        var newClimb = climb
+        newClimb.updatedBy = user.displayName ?? user.email ?? "Unknown"
+
         do {
-            try db.collection("climbs").addDocument(from: climb) { err in
-                if let err = err {
-                    print("❌ Error adding climb:", err.localizedDescription)
-                    completion?(false)
-                } else {
-                    print("✅ Climb added successfully.")
-                    completion?(true)
-                }
-            }
+            _ = try db.collection("climbs").addDocument(from: newClimb)
         } catch {
-            print("❌ Firestore encoding error:", error.localizedDescription)
-            completion?(false)
+            print("❌ Error adding climb: \(error.localizedDescription)")
         }
     }
 
-    func saveClimb(_ climb: Climb, completion: ((Bool) -> Void)? = nil) {
-        guard let id = climb.id else {
-            print("⚠️ saveClimb called without a climb ID.")
-            completion?(false)
-            return
-        }
+    func saveClimb(_ climb: Climb) {
+        guard let id = climb.id else { return }
+        guard let user = Auth.auth().currentUser else { return }
+        var updatedClimb = climb
+        updatedClimb.updatedBy = user.displayName ?? user.email ?? "Unknown"
 
         do {
-            try db.collection("climbs").document(id).setData(from: climb, merge: true) { err in
-                if let err = err {
-                    print("❌ Error saving climb:", err.localizedDescription)
-                    completion?(false)
-                } else {
-                    print("✅ Climb \(id) saved successfully.")
-                    completion?(true)
-                }
-            }
+            try db.collection("climbs").document(id).setData(from: updatedClimb, merge: true)
         } catch {
-            print("❌ Firestore encoding error:", error.localizedDescription)
-            completion?(false)
+            print("❌ Error saving climb: \(error.localizedDescription)")
         }
     }
 

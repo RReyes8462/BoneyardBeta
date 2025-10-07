@@ -22,7 +22,7 @@ struct Climb: Codable, Identifiable {
     var updatedBy: String?
     var ascentCount: Int = 0
     var avgRating: Double = 0.0
-
+    var section: String?
     // Map color string to SwiftUI Color
     var colorValue: Color {
         switch color.lowercased() {
