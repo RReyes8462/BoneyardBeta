@@ -1,8 +1,8 @@
 import SwiftUI
-import FirebaseAuth
-import FirebaseFirestore
-import PhotosUI
 import AVKit
+import PhotosUI
+import FirebaseFirestore
+import FirebaseAuth
 
 struct ClimbDetailSheet: View {
     @EnvironmentObject var firebase: FirebaseManager
@@ -13,10 +13,12 @@ struct ClimbDetailSheet: View {
 
     @State private var comment: String = ""
     @State private var rating: Int = 0
-    @State private var message: String?
     @State private var isSubmitting = false
-    @State private var selectedVideo: PhotosPickerItem? = nil
-    @State private var videoURL: URL?
+    @State private var message: String?
+    @State private var selectedVideo: PhotosPickerItem?
+    @State private var selectedVideoURL: URL?
+    @State private var allVideos: [String] = [] // all beta videos (any user)
+    @State private var userLog: [String: Any]?
 
     var body: some View {
         NavigationView {
@@ -59,65 +61,41 @@ struct ClimbDetailSheet: View {
                                 .font(.caption)
                         }
                     }
+                    .padding(.vertical, 8)
 
                     Divider()
 
-                    // MARK: - Log Input
-                    Text("Log your climb:")
-                        .font(.headline)
-                    TextEditor(text: $comment)
-                        .frame(height: 100)
-                        .padding(6)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(8)
+                    // MARK: - User Log Input
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Your Log")
+                            .font(.headline)
 
-                    Text("Rate this climb:")
-                        .font(.headline)
-                    HStack {
-                        ForEach(1...5, id: \.self) { star in
-                            Image(systemName: rating >= star ? "star.fill" : "star")
-                                .foregroundColor(.yellow)
-                                .font(.title2)
-                                .onTapGesture {
-                                    rating = star
-                                }
+                        TextEditor(text: $comment)
+                            .frame(height: 100)
+                            .padding(6)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(8)
+
+                        Text("Your Rating")
+                            .font(.headline)
+                        HStack {
+                            ForEach(1...5, id: \.self) { star in
+                                Image(systemName: rating >= star ? "star.fill" : "star")
+                                    .foregroundColor(.yellow)
+                                    .font(.title2)
+                                    .onTapGesture {
+                                        rating = star
+                                    }
+                            }
                         }
                     }
 
-                    Divider()
-
-                    // MARK: - Video Upload Section
-                    Text("Upload Beta Video:")
-                        .font(.headline)
-
-                    if let videoURL = videoURL {
-                        VideoPlayer(player: AVPlayer(url: videoURL))
-                            .frame(height: 200)
-                            .cornerRadius(10)
-                    }
-
-                    PhotosPicker(selection: $selectedVideo, matching: .videos, photoLibrary: .shared()) {
-                        Label("Select Video", systemImage: "video.fill.badge.plus")
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.blue.opacity(0.1))
-                            .cornerRadius(8)
-                    }
-                    .onChange(of: selectedVideo) { newItem in
-                        handleVideoSelection(newItem)
-                    }
-
-                    if let message = message {
-                        Text(message)
-                            .foregroundColor(.gray)
-                            .padding(.top, 6)
-                    }
-
-                    // MARK: - Submit Button
+                    // MARK: - Submit Log
                     Button(action: submitLog) {
                         HStack {
                             if isSubmitting { ProgressView() }
-                            Text("Submit Log").bold()
+                            Text("Submit Log")
+                                .bold()
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -126,6 +104,69 @@ struct ClimbDetailSheet: View {
                         .cornerRadius(10)
                     }
                     .disabled(isSubmitting)
+
+                    if let message = message {
+                        Text(message)
+                            .foregroundColor(.gray)
+                            .padding(.top, 6)
+                    }
+
+                    Divider()
+
+                    // MARK: - Video Upload Section
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Upload a Beta Video")
+                            .font(.headline)
+
+                        PhotosPicker(selection: $selectedVideo, matching: .videos) {
+                            Label("Choose Video", systemImage: "video.badge.plus")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                        .onChange(of: selectedVideo) { newItem in
+                            Task {
+                                if let newItem = newItem {
+                                    await handleVideoSelection(newItem)
+                                }
+                            }
+                        }
+
+                        if let videoURL = selectedVideoURL {
+                            Text("Selected: \(videoURL.lastPathComponent)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Button("Upload Video") {
+                                uploadVideo(videoURL)
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+
+                    Divider()
+
+                    // MARK: - Display Beta Videos
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Beta Videos")
+                            .font(.headline)
+                        if allVideos.isEmpty {
+                            Text("No beta videos yet.")
+                                .foregroundColor(.secondary)
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(allVideos, id: \.self) { videoURL in
+                                        VideoPlayerView(videoURL: URL(string: videoURL)!)
+                                            .frame(width: 220, height: 160)
+                                            .cornerRadius(10)
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                            }
+                        }
+                    }
                 }
                 .padding()
             }
@@ -135,119 +176,27 @@ struct ClimbDetailSheet: View {
                     Button("Close") { onDismiss() }
                 }
             }
-            .onAppear { loadExistingLog() }
+        }
+        .onAppear {
+            loadUserLog()
+            loadAllVideos()
         }
     }
 
-    // MARK: - Load User Log
-    private func loadExistingLog() {
-        firebase.fetchUserLog(for: climb.id ?? "") { data in
-            if let data = data {
-                if let existingComment = data["comment"] as? String {
-                    comment = existingComment
-                }
-                if let existingRating = data["rating"] as? Double {
-                    rating = Int(existingRating)
-                }
-                if let existingVideo = data["videoURL"] as? String,
-                   let url = URL(string: existingVideo) {
-                    videoURL = url
-                }
-            }
-        }
-    }
-
-    // MARK: - Handle Video Selection
-    private func handleVideoSelection(_ newItem: PhotosPickerItem?) {
-        guard let newItem = newItem else { return }
-
-        Task {
-            do {
-                // 1. Try to load as URL directly
-                if let fileURL = try? await newItem.loadTransferable(type: URL.self) {
-                    await convertAndUploadVideo(from: fileURL)
-                    return
-                }
-
-                // 2. Fallback to loading as Data (if URL not available)
-                if let data = try? await newItem.loadTransferable(type: Data.self) {
-                    let tempURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent(UUID().uuidString + ".mov")
-                    try data.write(to: tempURL)
-                    await convertAndUploadVideo(from: tempURL)
-                    return
-                }
-
-                await MainActor.run {
-                    message = "⚠️ Unable to load selected video. Try exporting locally first."
-                }
-            } catch {
-                await MainActor.run {
-                    message = "❌ Video selection failed: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    // MARK: - Convert & Upload Video
-    private func convertAndUploadVideo(from inputURL: URL) async {
-        await MainActor.run {
-            message = "⏳ Converting video..."
-        }
-
-        convertVideoToMP4(inputURL: inputURL) { outputURL in
-            guard let mp4URL = outputURL else {
-                message = "❌ Failed to convert video to MP4."
-                return
-            }
-
-            DispatchQueue.main.async {
-                self.videoURL = mp4URL
-                self.message = "⏳ Uploading video..."
-
-                firebase.uploadBetaVideo(for: climb.id ?? "", videoURL: mp4URL) { success, error in
-                    if success {
-                        message = "✅ Video uploaded successfully!"
-                    } else {
-                        message = "❌ Video upload failed: \(error ?? "Unknown error")"
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Video Conversion
-    private func convertVideoToMP4(inputURL: URL, completion: @escaping (URL?) -> Void) {
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".mp4")
-
-        let asset = AVAsset(url: inputURL)
-        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetMediumQuality) else {
-            completion(nil)
-            return
-        }
-
-        export.outputURL = outputURL
-        export.outputFileType = .mp4
-        export.exportAsynchronously {
-            DispatchQueue.main.async {
-                completion(export.status == .completed ? outputURL : nil)
-            }
-        }
-    }
-
-    // MARK: - Submit Log
+    // MARK: - Handle Log Submission
     private func submitLog() {
-        guard let _ = auth.user else {
+        guard let user = auth.user else {
             message = "You must be logged in to log a climb."
             return
         }
         guard !comment.trimmingCharacters(in: .whitespaces).isEmpty else {
-            message = "Please enter a comment."
+            message = "Please enter a comment before submitting."
             return
         }
 
         isSubmitting = true
+        message = nil
+
         firebase.logClimbSend(
             climbID: climb.id ?? "",
             comment: comment,
@@ -262,5 +211,80 @@ struct ClimbDetailSheet: View {
                 }
             }
         }
+    }
+
+    // MARK: - Handle Video Selection
+    private func handleVideoSelection(_ item: PhotosPickerItem) async {
+        do {
+            if let data = try await item.loadTransferable(type: Data.self) {
+                let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+                try data.write(to: tmpURL)
+                selectedVideoURL = tmpURL
+                print("🎥 Video saved temporarily at \(tmpURL)")
+            }
+        } catch {
+            print("❌ Failed to load video:", error.localizedDescription)
+        }
+    }
+
+    // MARK: - Upload Video
+    private func uploadVideo(_ url: URL) {
+        guard let climbID = climb.id else { return }
+        firebase.uploadBetaVideo(for: climbID, videoURL: url) { success, error in
+            if success {
+                message = "✅ Video uploaded successfully!"
+                selectedVideo = nil
+                selectedVideoURL = nil
+                loadAllVideos()
+            } else {
+                message = "❌ Upload failed: \(error ?? "Unknown error")"
+            }
+        }
+    }
+
+    // MARK: - Load User Log
+    private func loadUserLog() {
+        firebase.fetchUserLog(for: climb.id ?? "") { data in
+            DispatchQueue.main.async {
+                self.userLog = data
+                if let data = data {
+                    self.comment = data["comment"] as? String ?? ""
+                    self.rating = Int(data["rating"] as? Double ?? 0)
+                }
+            }
+        }
+    }
+
+    // MARK: - Load All Videos
+    private func loadAllVideos() {
+        guard let climbID = climb.id else { return }
+        firebase.db.collection("climbs").document(climbID)
+            .collection("logs")
+            .getDocuments { snapshot, error in
+                guard let docs = snapshot?.documents else { return }
+                var urls: [String] = []
+                for doc in docs {
+                    if let userVideos = doc.data()["betaVideos"] as? [String] {
+                        urls.append(contentsOf: userVideos)
+                    }
+                }
+                DispatchQueue.main.async {
+                    self.allVideos = urls
+                }
+            }
+    }
+}
+
+// MARK: - Video Player View
+struct VideoPlayerView: View {
+    let videoURL: URL
+
+    var body: some View {
+        VideoPlayer(player: AVPlayer(url: videoURL))
+            .cornerRadius(10)
+            .onDisappear {
+                // Stop playback when leaving the view
+                AVPlayer(url: videoURL).pause()
+            }
     }
 }

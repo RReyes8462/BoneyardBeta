@@ -8,7 +8,7 @@ final class FirebaseManager: ObservableObject {
     static let shared = FirebaseManager()
 
     @Published var isAdmin: Bool = false
-    private let db = Firestore.firestore()
+    let db = Firestore.firestore()
     private var cancellables = Set<AnyCancellable>()
 
     private init() {}
@@ -26,50 +26,52 @@ final class FirebaseManager: ObservableObject {
             return
         }
 
+        // ✅ Unique filename for multiple uploads
+        let fileName = "\(UUID().uuidString).mp4"
         let storageRef = Storage.storage().reference()
-            .child("beta_videos/\(climbID)/\(user.uid).mp4")
+            .child("beta_videos/\(climbID)/\(user.uid)/\(fileName)")
 
         print("📤 Starting upload to \(storageRef.fullPath)")
 
-        let uploadTask = storageRef.putFile(from: videoURL, metadata: nil) { metadata, error in
+        let metadata = StorageMetadata()
+        metadata.contentType = "video/mp4"
+
+        let uploadTask = storageRef.putFile(from: videoURL, metadata: metadata) { metadata, error in
             if let error = error {
                 print("❌ Upload error:", error.localizedDescription)
                 completion(false, error.localizedDescription)
                 return
             }
 
-            // Wait briefly before getting download URL
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                storageRef.downloadURL { url, error in
+            storageRef.downloadURL { url, error in
+                if let error = error {
+                    print("❌ Failed to get downloadURL:", error.localizedDescription)
+                    completion(false, error.localizedDescription)
+                    return
+                }
+
+                guard let url = url else {
+                    completion(false, "Missing download URL")
+                    return
+                }
+
+                print("✅ Video uploaded, URL: \(url.absoluteString)")
+
+                // Save in Firestore under user's log
+                let logRef = self.db.collection("climbs")
+                    .document(climbID)
+                    .collection("logs")
+                    .document(user.uid)
+
+                logRef.updateData([
+                    "betaVideos": FieldValue.arrayUnion([url.absoluteString])
+                ]) { error in
                     if let error = error {
-                        print("❌ Failed to get downloadURL:", error.localizedDescription)
+                        print("❌ Failed to save video URL:", error.localizedDescription)
                         completion(false, error.localizedDescription)
-                        return
-                    }
-
-                    guard let url = url else {
-                        completion(false, "Missing download URL")
-                        return
-                    }
-
-                    print("✅ Video uploaded, URL: \(url.absoluteString)")
-
-                    let logRef = self.db.collection("climbs")
-                        .document(climbID)
-                        .collection("logs")
-                        .document(user.uid)
-
-                    logRef.setData([
-                        "videoURL": url.absoluteString,
-                        "videoUploadedAt": FieldValue.serverTimestamp()
-                    ], merge: true) { error in
-                        if let error = error {
-                            print("❌ Failed to save video URL:", error.localizedDescription)
-                            completion(false, error.localizedDescription)
-                        } else {
-                            print("✅ Video URL saved to Firestore logs")
-                            completion(true, nil)
-                        }
+                    } else {
+                        print("✅ Video URL added to Firestore log array")
+                        completion(true, nil)
                     }
                 }
             }
@@ -81,7 +83,6 @@ final class FirebaseManager: ObservableObject {
             print("📈 Upload progress: \(String(format: "%.1f", percent))%")
         }
     }
-
     // MARK: - Log Climb Send
     func logClimbSend(climbID: String, comment: String, rating: Double, completion: @escaping (Bool, String?) -> Void) {
         guard let user = Auth.auth().currentUser else {
