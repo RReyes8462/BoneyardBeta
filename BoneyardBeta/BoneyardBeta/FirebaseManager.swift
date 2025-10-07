@@ -84,7 +84,12 @@ final class FirebaseManager: ObservableObject {
         }
     }
     // MARK: - Log Climb Send
-    func logClimbSend(climbID: String, comment: String, rating: Double, completion: @escaping (Bool, String?) -> Void) {
+    func logClimbSend(
+        climbID: String,
+        comment: String,
+        rating: Double,
+        completion: @escaping (Bool, String?) -> Void
+    ) {
         guard let user = Auth.auth().currentUser else {
             completion(false, "User not authenticated")
             return
@@ -97,42 +102,73 @@ final class FirebaseManager: ObservableObject {
 
         let climbRef = db.collection("climbs").document(climbID)
 
-        db.runTransaction({ (transaction, errorPointer) -> Any? in
-            let climbDoc: DocumentSnapshot
-            do {
-                climbDoc = try transaction.getDocument(climbRef)
-            } catch let fetchError as NSError {
-                errorPointer?.pointee = fetchError
-                return nil
+        // ✅ Step 1: Check if user already has a log
+        logRef.getDocument { existingLog, error in
+            if let error = error {
+                completion(false, "Failed to check existing log: \(error.localizedDescription)")
+                return
             }
 
-            let ascentCount = (climbDoc.data()?["ascentCount"] as? Int) ?? 0
-            let avgRating = (climbDoc.data()?["avgRating"] as? Double) ?? 0.0
+            let isNewLog = !(existingLog?.exists ?? false)
+            let oldRating = existingLog?.data()?["rating"] as? Double
 
-            let newAscentCount = ascentCount + 1
-            let newAvgRating = ((avgRating * Double(ascentCount)) + rating) / Double(newAscentCount)
+            self.db.runTransaction({ (transaction, errorPointer) -> Any? in
+                // Read the current climb
+                let climbDoc: DocumentSnapshot
+                do {
+                    climbDoc = try transaction.getDocument(climbRef)
+                } catch let fetchError as NSError {
+                    errorPointer?.pointee = fetchError
+                    return nil
+                }
 
-            transaction.updateData([
-                "ascentCount": newAscentCount,
-                "avgRating": newAvgRating
-            ], forDocument: climbRef)
+                // Pull climb data safely
+                var ascentCount = (climbDoc.data()?["ascentCount"] as? Int) ?? 0
+                var ratingCount = (climbDoc.data()?["ratingCount"] as? Int) ?? 0
+                var totalRating = (climbDoc.data()?["totalRating"] as? Double) ?? 0.0
+                var avgRating = (climbDoc.data()?["avgRating"] as? Double) ?? 0.0
 
-            transaction.setData([
-                "comment": comment,
-                "rating": rating,
-                "timestamp": FieldValue.serverTimestamp(),
-                "userID": user.uid,
-                "userEmail": user.email ?? "unknown"
-            ], forDocument: logRef, merge: true)
+                if isNewLog {
+                    // First time this user logged — increment ascent & ratings
+                    ascentCount += 1
+                    ratingCount += 1
+                    totalRating += rating
+                } else if let oldRating = oldRating {
+                    // User already logged — adjust totals
+                    totalRating = totalRating - oldRating + rating
+                }
 
-            return nil
-        }) { (_, error) in
-            if let error = error {
-                print("❌ Failed to log climb:", error.localizedDescription)
-                completion(false, error.localizedDescription)
-            } else {
-                print("✅ Logged climb successfully")
-                completion(true, nil)
+                // Compute average safely
+                if ratingCount > 0 {
+                    avgRating = totalRating / Double(ratingCount)
+                }
+
+                // Update climb stats
+                transaction.updateData([
+                    "ascentCount": ascentCount,
+                    "ratingCount": ratingCount,
+                    "totalRating": totalRating,
+                    "avgRating": avgRating
+                ], forDocument: climbRef)
+
+                // Save or update log
+                transaction.setData([
+                    "comment": comment,
+                    "rating": rating,
+                    "timestamp": FieldValue.serverTimestamp(),
+                    "userID": user.uid,
+                    "userEmail": user.email ?? "unknown"
+                ], forDocument: logRef, merge: true)
+
+                return nil
+            }) { (_, error) in
+                if let error = error {
+                    print("❌ Failed to log climb:", error.localizedDescription)
+                    completion(false, error.localizedDescription)
+                } else {
+                    print("✅ Logged climb successfully (\(isNewLog ? "new" : "update"))")
+                    completion(true, nil)
+                }
             }
         }
     }
