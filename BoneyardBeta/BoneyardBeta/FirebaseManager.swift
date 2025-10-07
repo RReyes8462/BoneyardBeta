@@ -330,7 +330,7 @@ class FirebaseManager: ObservableObject {
         if tag.contains("Yellow Tag (V2–4)") || tag.contains("Yellow Tag (V2-4)") { return ["V2", "V3", "V4"] }
         if tag.contains("Red Tag (V0–V2)") || tag.contains("Red Tag (V0-2)") { return ["V0", "V1", "V2"] }
         if tag.contains("Blue Tag (VB–V0)") || tag.contains("Blue Tag (VB-V0)") { return ["VB", "V0"] }
-        if tag.contains("White Tag (Ungraded)") { return ["V0", "V1"] }
+        if tag.contains("White Tag (Ungraded)") { return ["VB-0", "V0-V2", "V2-4", "V4-6", "V6-8", "V8+"] }
         return ["Ungraded"]
     }
 

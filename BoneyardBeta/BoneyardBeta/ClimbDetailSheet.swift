@@ -99,6 +99,7 @@ struct ClimbDetailSheet: View {
                                     user: user
                                 ) {
                                     hasLogged = true
+                                    canVote = true
                                     showSentToast = true
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                                         withAnimation { showSentToast = false }

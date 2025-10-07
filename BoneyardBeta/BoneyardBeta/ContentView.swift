@@ -107,40 +107,41 @@ struct ContentView: View {
                     }
                 }
                 .overlay(alignment: .topTrailing) {
-                    if auth.isAdmin {
-                        Button {
-                            isEditMode.toggle()
-                        } label: {
-                            Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(isEditMode ? .green : .blue)
-                                .padding()
-                        }
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if auth.isAdmin {
-                        Button {
-                            let newClimb = Climb(
-                                id: nil,
-                                name: "climbName",
-                                grade: "Ungraded",
-                                color: "gray",
-                                x: 100,
-                                y: 100,
-                                gymID: "urbana boulders",
-                                ascentCount: 0,
-                                avgRating: 0
-                            )
-                            firebase.addClimb(newClimb)
+                    HStack(spacing: 12) {
+                        // ✅ Edit button
+                        if auth.isAdmin {
+                            Button {
+                                isEditMode.toggle()
+                            } label: {
+                                Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle.fill")
+                                    .font(.system(size: 32))
+                                    .foregroundStyle(isEditMode ? .green : .blue)
+                                    .padding(.trailing, 4)
+                            }
 
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 48))
-                                .foregroundStyle(.orange)
-                                .padding()
+                            // ✅ Add Climb button (moved here)
+                            Button {
+                                let newClimb = Climb(
+                                    id: nil,
+                                    name: "climbName",
+                                    grade: "Ungraded",
+                                    color: "gray",
+                                    x: 100,
+                                    y: 100,
+                                    gymID: "urbana boulders",
+                                    ascentCount: 0,
+                                    avgRating: 0
+                                )
+                                firebase.addClimb(newClimb)
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 32))
+                                    .foregroundStyle(.orange)
+                                    .padding(.trailing)
+                            }
                         }
                     }
+                    .padding(.top, 8)
                 }
                 .gesture(dragGesture(in: geo))
                 .gesture(magnificationGesture(in: geo))
