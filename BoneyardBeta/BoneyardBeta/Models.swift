@@ -39,3 +39,9 @@ struct Climb: Codable, Identifiable {
         }
     }
 }
+struct GradeVote: Codable, Identifiable, Equatable {
+    @DocumentID var id: String?
+    var userID: String
+    var gradeVote: String
+}
+

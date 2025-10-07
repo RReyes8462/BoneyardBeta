@@ -252,5 +252,20 @@ extension FirebaseManager {
                }
            }
        }
+    func submitGradeVote(for climbID: String, vote: String, user: User, completion: (() -> Void)? = nil) {
+        let ref = db.collection("climbs").document(climbID).collection("gradeVotes").document(user.uid)
+        ref.setData([
+            "userID": user.uid,
+            "gradeVote": vote
+        ]) { error in
+            if let error = error {
+                print("❌ Error submitting grade vote: \(error)")
+            } else {
+                print("✅ Grade vote submitted successfully")
+                completion?()
+            }
+        }
+    }
+
 }
 

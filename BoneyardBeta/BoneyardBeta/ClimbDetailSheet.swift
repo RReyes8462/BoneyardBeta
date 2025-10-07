@@ -20,6 +20,8 @@ struct VideoData: Identifiable {
 struct ClimbDetailSheet: View {
     var climb: Climb
     var onClose: () -> Void
+    @State private var gradeVotes: [GradeVote] = []
+    @State private var userVote: String? = nil
 
     @EnvironmentObject var firebase: FirebaseManager
     @EnvironmentObject var auth: AuthManager
@@ -163,7 +165,7 @@ struct ClimbDetailSheet: View {
                             Text("No logs yet. Be the first to send it!")
                                 .foregroundColor(.secondary)
                         } else {
-                            ForEach(climbLogs) { log in
+                            ForEach(climbLogs.prefix(5)) { log in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
                                         Text(log.email)
@@ -180,6 +182,60 @@ struct ClimbDetailSheet: View {
                                 }
                                 .padding(.vertical, 4)
                                 Divider()
+                            }
+                        }
+                    }
+                    Divider()
+
+                    // MARK: Grade Consensus Poll
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Community Grade Consensus")
+                            .font(.headline)
+                        let gradeOptions = climb.grade.contains("Pink Tag (V8+)") ? ["V8", "V9", "V10+"] :
+                                           climb.grade.contains("Purple Tag (V6–8)") ? ["V6", "V7", "V8"] :
+                                           climb.grade.contains("Green Tag (V4–6)") ? ["V4", "V5", "V6"] :
+                                           climb.grade.contains("Yellow Tag (V2–4)") ? ["V2", "V3", "V4"] :
+                                           climb.grade.contains("Red Tag (V0–V2)") ? ["V0", "V1", "V2"] :
+                                           climb.grade.contains("Blue Tag (VB–V0)") ? ["V0", "V1"] :
+                                           climb.grade.contains("White Tag (Ungraded)") ? ["V0", "V1"] :
+                                           ["Ungraded"]
+
+                        if gradeVotes.isEmpty {
+                            Text("No votes yet. Cast the first one!")
+                                .foregroundColor(.secondary)
+                        }
+
+                        ForEach(gradeOptions, id: \.self) { option in
+                            HStack {
+                                Button {
+                                    if let user = auth.user {
+                                        firebase.submitGradeVote(for: climb.id ?? "", vote: option, user: user) {
+                                            loadGradeVotes()
+                                        }
+                                    }
+                                } label: {
+                                    Text(option)
+                                        .font(.headline)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(userVote == option ? Color.blue : Color.gray.opacity(0.2))
+                                        )
+                                        .foregroundColor(userVote == option ? .white : .primary)
+                                }
+
+                                // progress bar for this option
+                                GeometryReader { geo in
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.blue.opacity(0.3))
+                                        .frame(width: geo.size.width * CGFloat(votePercent(option)), height: 8)
+                                        .animation(.easeInOut(duration: 0.3), value: gradeVotes)
+                                }
+                                .frame(height: 8)
+                                Text("\(Int(votePercent(option) * 100))%")
+                                    .font(.caption)
+                                    .frame(width: 40, alignment: .trailing)
                             }
                         }
                     }
@@ -296,6 +352,7 @@ struct ClimbDetailSheet: View {
                 loadClimbLogs()
                 loadUserLog()
                 listenForClimbUpdates()
+                loadGradeVotes()
             }
             .sheet(isPresented: $showVideoPicker) {
                 VideoPicker(selectedVideoURL: $selectedVideoURL) { url in
@@ -449,6 +506,25 @@ struct ClimbDetailSheet: View {
                 commentText = existing.comment
             }
         }
+    }
+    private func loadGradeVotes() {
+        guard let climbID = climb.id else { return }
+        firebase.db.collection("climbs").document(climbID)
+            .collection("gradeVotes")
+            .addSnapshotListener { snap, _ in
+                guard let docs = snap?.documents else { return }
+                gradeVotes = docs.compactMap { try? $0.data(as: GradeVote.self) }
+
+                if let user = auth.user {
+                    userVote = gradeVotes.first(where: { $0.userID == user.uid })?.gradeVote
+                }
+            }
+    }
+
+    private func votePercent(_ option: String) -> Double {
+        guard !gradeVotes.isEmpty else { return 0 }
+        let count = Double(gradeVotes.filter { $0.gradeVote == option }.count)
+        return count / Double(gradeVotes.count)
     }
 
     private func loadAllVideos() {
