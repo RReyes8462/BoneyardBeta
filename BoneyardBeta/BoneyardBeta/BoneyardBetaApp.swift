@@ -13,9 +13,19 @@ struct BoneyardBetaApp: App {
     var body: some Scene {
         WindowGroup {
             if auth.user != nil {
-                ContentView()
-                    .environmentObject(firebase)
-                    .environmentObject(auth)
+                TabView {
+                    ContentView()
+                        .tabItem {
+                            Label("Gym", systemImage: "figure.climbing")
+                        }
+
+                    LeaderboardView()
+                        .tabItem {
+                            Label("Leaderboard", systemImage: "trophy")
+                        }
+                }
+                .environmentObject(firebase)
+                .environmentObject(auth)
             } else {
                 LoginView()
                     .environmentObject(firebase)

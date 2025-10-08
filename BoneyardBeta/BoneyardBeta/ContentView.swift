@@ -43,7 +43,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .leading) {
-                // Transparent overlay to close sidebar
+                // Dim overlay for sidebar
                 if showSidebar {
                     Color.black.opacity(0.3)
                         .ignoresSafeArea()
@@ -53,9 +53,37 @@ struct ContentView: View {
                         .zIndex(1)
                 }
 
-                mainContent
-                    .blur(radius: showSidebar ? 5 : 0)
-                    .disabled(showSidebar)
+                VStack(spacing: 0) {
+                    // ===================================================
+                    // MARK: - Top Navigation Bar (New)
+                    // ===================================================
+                    HStack {
+                        Button {
+                            withAnimation { showSidebar.toggle() }
+                        } label: {
+                            Image(systemName: "line.horizontal.3")
+                                .font(.system(size: 28))
+                                .foregroundStyle(.primary)
+                                .padding(.leading)
+                        }
+
+                        Text("🧗‍♂️ Gym Map")
+                            .font(.title2.bold())
+                            .padding(.leading, 4)
+
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
+                    .shadow(radius: 1)
+
+                    // ===================================================
+                    // MARK: - Main Map Content
+                    // ===================================================
+                    mainContent
+                        .blur(radius: showSidebar ? 5 : 0)
+                        .disabled(showSidebar)
+                }
 
                 if showSidebar {
                     sidebar
@@ -120,22 +148,6 @@ struct ContentView: View {
                 .frame(width: geo.size.width, height: topHeight, alignment: .center)
                 .clipped()
                 .contentShape(Rectangle())
-                .overlay(alignment: .topLeading) {
-                    HStack {
-                        // Sidebar button
-                        Button {
-                            withAnimation { showSidebar.toggle() }
-                        } label: {
-                            Image(systemName: "line.horizontal.3")
-                                .font(.system(size: 28))
-                                .foregroundStyle(.primary)
-                                .padding()
-                        }
-
-                        Spacer(minLength: 8)
-                    }
-                }
-
                 .overlay(alignment: .topTrailing) {
                     HStack(spacing: 12) {
                         // ✅ Edit button
