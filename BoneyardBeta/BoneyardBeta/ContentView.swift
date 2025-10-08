@@ -110,7 +110,8 @@ struct ContentView: View {
                 let topHeight = geo.size.height * 0.5
 
                 ZStack {
-                    Color.black.opacity(0.04)
+                    //background color (to fill map)
+                    Color.white
                     ZStack {
                         Image(activeMap == "front" ? "ub_layout" : "ub_layout_back")
                             .resizable()
@@ -380,9 +381,16 @@ struct ContentView: View {
     // MARK: - Individual Climb Circle
     @ViewBuilder
     private func climbCircle(for climb: Binding<Climb>) -> some View {
+
         Circle()
             .fill(climb.wrappedValue.colorValue)
             .frame(width: 28, height: 28)
+            // ✅ Add black outline 
+            .overlay(
+                Circle()
+                    .stroke(Color.black, lineWidth: 2)
+            )
+            // ✅ Keep highlight ring when selected
             .overlay(
                 Circle()
                     .stroke(Color.white.opacity(highlightedClimbID == climb.wrappedValue.id ? 0.8 : 0),
@@ -392,6 +400,7 @@ struct ContentView: View {
                     .animation(.easeInOut(duration: 0.4), value: highlightedClimbID)
             )
             .position(x: climb.wrappedValue.x, y: climb.wrappedValue.y)
+            // ✅ Allow dragging in edit mode
             .gesture(
                 DragGesture()
                     .onChanged { value in
@@ -405,10 +414,16 @@ struct ContentView: View {
                         }
                     }
             )
+            // ✅ Tap behavior — open detail if not editing
             .onTapGesture {
                 selectedClimb = climb.wrappedValue
+
                 if isEditMode {
+                    // Edit existing climb
                     showEditSheet = true
+                } else {
+                    // Open detail sheet
+                    showDetailSheet = true
                 }
             }
     }
