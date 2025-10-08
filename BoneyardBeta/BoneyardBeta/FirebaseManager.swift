@@ -15,8 +15,14 @@ class FirebaseManager: ObservableObject {
     private init() {}
 
     // MARK: - Video Metadata
-    func saveVideoMetadata(for climbID: String, url: String, completion: @escaping (Bool) -> Void) {
+    func saveVideoMetadata(for climb: Climb, url: String, completion: @escaping (Bool) -> Void) {
         guard let user = Auth.auth().currentUser else {
+            completion(false)
+            return
+        }
+
+        guard let climbID = climb.id else {
+            print("❌ Missing climb ID.")
             completion(false)
             return
         }
@@ -25,20 +31,28 @@ class FirebaseManager: ObservableObject {
             "url": url,
             "uploaderID": user.uid,
             "uploaderEmail": user.email ?? "unknown",
+            "climbID": climbID,
+            "climbName": climb.name,
+            "grade": climb.grade,
+            "section": climb.section ?? "Unknown",
+            "gymID": climb.gymID,
             "likes": [],
             "timestamp": Timestamp(date: Date())
         ]
 
         db.collection("climbs").document(climbID)
-            .collection("videos").addDocument(data: videoData) { err in
+            .collection("videos")
+            .addDocument(data: videoData) { err in
                 if let err = err {
                     print("❌ Error saving video metadata:", err.localizedDescription)
                     completion(false)
                 } else {
+                    print("✅ Saved video metadata for climb:", climb.name)
                     completion(true)
                 }
             }
     }
+
 
     // MARK: - Toggle Like
     func toggleLike(for climbID: String,

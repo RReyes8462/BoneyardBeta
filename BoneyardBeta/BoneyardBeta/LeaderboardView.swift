@@ -6,9 +6,11 @@ struct LeaderboardView: View {
     @EnvironmentObject var auth: AuthManager
 
     @State private var leaderboard: [UserStats] = []
-    @State private var showSidebar = false
-    @State private var showLogoutConfirm = false
-    @State private var showProfile = false
+    //sidebar
+    @Binding var showSidebar: Bool
+    @Binding var showLogoutConfirm: Bool
+    @Binding var showProfile: Bool
+    @Binding var showProfileOverview: Bool
 
     // Cache to avoid refetching user info repeatedly
     @State private var userCache: [String: (name: String, photo: String?)] = [:]
@@ -36,7 +38,15 @@ struct LeaderboardView: View {
                     .disabled(showSidebar)
 
                 if showSidebar {
-                    sidebar.transition(.move(edge: .leading)).zIndex(2)
+                    SidebarMenu(
+                        showSidebar: $showSidebar,
+                        showLogoutConfirm: $showLogoutConfirm,
+                        showProfile: $showProfile,
+                        showProfileOverview: $showProfileOverview
+                    )
+                    .transition(.move(edge: .leading))
+                    .zIndex(2)
+                    .environmentObject(auth)
                 }
             }
             .animation(.easeInOut, value: showSidebar)
@@ -109,42 +119,6 @@ struct LeaderboardView: View {
             }
         }
         .onAppear(perform: startLiveLeaderboard)
-    }
-
-    // MARK: - Sidebar
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            NavigationLink(destination: ProfileView().environmentObject(auth), isActive: $showProfile) {
-                EmptyView()
-            }
-
-            Text("Menu")
-                .font(.headline)
-                .padding(.top, 40)
-                .padding(.horizontal)
-
-            Button {
-                showProfile = true
-                withAnimation { showSidebar = false }
-            } label: {
-                Label("Edit Profile", systemImage: "person.crop.circle")
-                    .padding(.horizontal)
-            }
-
-            Button(role: .destructive) {
-                showLogoutConfirm = true
-                withAnimation { showSidebar = false }
-            } label: {
-                Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
-                    .padding(.horizontal)
-            }
-
-            Spacer()
-        }
-        .frame(width: 240)
-        .frame(maxHeight: .infinity)
-        .background(Color(.systemGray6))
-        .edgesIgnoringSafeArea(.all)
     }
 
     // MARK: - Live Firestore Updates with Caching

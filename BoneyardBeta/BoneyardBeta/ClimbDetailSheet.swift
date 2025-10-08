@@ -311,7 +311,6 @@ struct ClimbDetailSheet: View {
     }
 
     private func uploadVideo(_ url: URL) {
-        guard let climbID = climb.id else { return }
         let filename = "videos/\(UUID().uuidString).mp4"
         let ref = Storage.storage().reference().child(filename)
         isUploading = true
@@ -324,7 +323,7 @@ struct ClimbDetailSheet: View {
         uploadTask.observe(.success) { _ in
             ref.downloadURL { videoURL, _ in
                 guard let videoURL = videoURL else { return }
-                firebase.saveVideoMetadata(for: climbID, url: videoURL.absoluteString) { success in
+                firebase.saveVideoMetadata(for: climb, url: videoURL.absoluteString) { success in
                     withAnimation { isUploading = false }
                     if success {
                         loadAllVideos()

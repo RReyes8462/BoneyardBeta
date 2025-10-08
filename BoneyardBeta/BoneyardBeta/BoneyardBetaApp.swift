@@ -5,27 +5,62 @@ import Firebase
 struct BoneyardBetaApp: App {
     @StateObject var firebase = FirebaseManager.shared
     @StateObject var auth = AuthManager()
+    @State private var showProfileOverview = false
 
-    init() {
-        FirebaseApp.configure()
-    }
+    @State private var showSidebar = false
+    @State private var showLogoutConfirm = false
+    @State private var showProfile = false
+
+    init() { FirebaseApp.configure() }
 
     var body: some Scene {
         WindowGroup {
             if auth.user != nil {
-                TabView {
-                    ContentView()
+                ZStack(alignment: .leading) {
+                    TabView {
+                        ContentView(
+                            showSidebar: $showSidebar,
+                            showLogoutConfirm: $showLogoutConfirm,
+                            showProfile: $showProfile,
+                            showProfileOverview: $showProfileOverview
+                        )
                         .tabItem {
                             Label("Gym", systemImage: "figure.climbing")
                         }
 
-                    LeaderboardView()
+                        LeaderboardView(
+                            showSidebar: $showSidebar,
+                            showLogoutConfirm: $showLogoutConfirm,
+                            showProfile: $showProfile,
+                            showProfileOverview: $showProfileOverview
+                        )
                         .tabItem {
                             Label("Leaderboard", systemImage: "trophy")
                         }
+                    }
+                    .environmentObject(firebase)
+                    .environmentObject(auth)
+
+                    if showSidebar {
+                        SidebarMenu(
+                            showSidebar: $showSidebar,
+                            showLogoutConfirm: $showLogoutConfirm,
+                            showProfile: $showProfile,
+                            showProfileOverview: $showProfileOverview
+                        )
+                        .environmentObject(firebase)
+                        .environmentObject(auth)
+                        .transition(.move(edge: .leading))
+                        .zIndex(2)
+                    }
                 }
-                .environmentObject(firebase)
-                .environmentObject(auth)
+                .animation(.easeInOut, value: showSidebar)
+                .alert("Sign Out?", isPresented: $showLogoutConfirm) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Sign Out", role: .destructive) {
+                        auth.signOut()
+                    }
+                }
             } else {
                 LoginView()
                     .environmentObject(firebase)
