@@ -5,11 +5,12 @@
 //  Created by Red Reyes on 10/8/25.
 //
 
-
 import SwiftUI
 import FirebaseFirestore
 import FirebaseStorage
 import FirebaseAuth
+import AVKit
+import AVFoundation
 
 struct UserProfileOverview: View {
     @EnvironmentObject var auth: AuthManager
@@ -19,13 +20,13 @@ struct UserProfileOverview: View {
     @State private var sendsByGrade: [String: Int] = [:]
     @State private var videosByGrade: [String: [VideoData]] = [:]
     @State private var expandedGrades: Set<String> = []
+    @State private var selectedVideo: VideoData?
 
     private let db = Firestore.firestore()
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-
                 // ===================================================
                 // MARK: - Profile Header
                 // ===================================================
@@ -99,7 +100,9 @@ struct UserProfileOverview: View {
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         HStack(spacing: 12) {
                                             ForEach(videos) { video in
-                                                VideoPreview(video: video)
+                                                VideoPreview(video: video) { tappedVideo in
+                                                    selectedVideo = tappedVideo
+                                                }
                                             }
                                         }
                                         .padding(.horizontal)
@@ -131,9 +134,17 @@ struct UserProfileOverview: View {
         }
         .navigationTitle("My Profile")
         .onAppear(perform: loadUserStats)
+        .sheet(item: $selectedVideo) { video in
+            if let url = URL(string: video.url) {
+                AVPlayerView(url: url)
+                    .ignoresSafeArea()
+            }
+        }
     }
 
+    // ===================================================
     // MARK: - Load User Stats
+    // ===================================================
     private func loadUserStats() {
         guard let user = auth.user else { return }
 
@@ -163,15 +174,25 @@ struct UserProfileOverview: View {
                 var grouped: [String: [VideoData]] = [:]
                 for doc in docs {
                     if let data = try? doc.data(as: VideoData.self) {
-                        let grade = extractGrade(from: data.url) ?? "Ungraded"
+                        let grade = data.grade ?? "Ungraded"
                         grouped[grade, default: []].append(data)
                     }
                 }
+
+                // Sort videos by timestamp descending
+                for (grade, vids) in grouped {
+                    grouped[grade] = vids.sorted {
+                        ($0.timestamp ?? Date.distantPast) > ($1.timestamp ?? Date.distantPast)
+                    }
+                }
+
                 videosByGrade = grouped
             }
     }
 
-    // MARK: - Helpers
+    // ===================================================
+    // MARK: - Grade Ordering Helper
+    // ===================================================
     private func sortedGrades() -> [String] {
         let gradeOrder = [
             "Blue Tag (VB–V0)",
@@ -182,53 +203,81 @@ struct UserProfileOverview: View {
             "Pink Tag (V8+)",
             "White Tag (Ungraded)"
         ]
-        let existing = Array(sendsByGrade.keys).filter { gradeOrder.contains($0) }
-        return gradeOrder.filter { existing.contains($0) }
-    }
 
-    private func extractGrade(from url: String) -> String? {
-        // If you store grade info in the video doc, replace this with data.grade
-        // This is a fallback in case it's embedded in the filename
-        if url.lowercased().contains("vb") { return "Blue Tag (VB–V0)" }
-        if url.lowercased().contains("v0") || url.lowercased().contains("v2") { return "Red Tag (V0–V2)" }
-        if url.lowercased().contains("v4") { return "Yellow Tag (V2–4)" }
-        if url.lowercased().contains("v6") { return "Green Tag (V4–6)" }
-        if url.lowercased().contains("v8") { return "Purple Tag (V6–8)" }
-        return "White Tag (Ungraded)"
+        // Union the keys from both dictionaries
+        let existing: Set<String> = Set(sendsByGrade.keys).union(Set(videosByGrade.keys))
+
+        // Keep known grades in the prescribed order…
+        let ordered = gradeOrder.filter { existing.contains($0) }
+
+        // …and append any unexpected/extra grades (if any), alphabetized.
+        let extras = existing.subtracting(Set(gradeOrder)).sorted()
+
+        return ordered + extras
     }
 }
 
-// MARK: - Video Preview Subview
+// ===================================================
+// MARK: - Video Preview with Thumbnail
+// ===================================================
 struct VideoPreview: View {
     let video: VideoData
+    var onTap: (VideoData) -> Void
+
+    @State private var thumbnail: UIImage?
 
     var body: some View {
         VStack(spacing: 6) {
-            ZStack {
-                Rectangle()
-                    .fill(Color.black.opacity(0.2))
-                    .frame(width: 120, height: 80)
-                    .cornerRadius(8)
-                    .overlay(
-                        Image(systemName: "play.circle.fill")
+            Button {
+                onTap(video)
+            } label: {
+                ZStack {
+                    if let thumbnail = thumbnail {
+                        Image(uiImage: thumbnail)
                             .resizable()
-                            .scaledToFit()
-                            .frame(width: 28, height: 28)
-                            .foregroundColor(.white)
-                    )
+                            .scaledToFill()
+                            .frame(width: 120, height: 80)
+                            .cornerRadius(8)
+                            .clipped()
+                    } else {
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 120, height: 80)
+                            .cornerRadius(8)
+                            .overlay(ProgressView())
+                    }
 
-                AsyncImage(url: URL(string: video.url)) { img in
-                    img.resizable().scaledToFill()
-                } placeholder: {
-                    Color.gray.opacity(0.3)
+                    Image(systemName: "play.circle.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .foregroundColor(.white)
                 }
-                .frame(width: 120, height: 80)
-                .cornerRadius(8)
             }
+            .buttonStyle(.plain)
 
             Text(video.uploaderEmail)
                 .font(.caption2)
                 .lineLimit(1)
         }
+        .onAppear { generateThumbnail() }
+    }
+
+    private func generateThumbnail() {
+        guard let url = URL(string: video.url) else { return }
+        let asset = AVAsset(url: url)
+        let imageGenerator = AVAssetImageGenerator(asset: asset)
+        imageGenerator.appliesPreferredTrackTransform = true
+
+        DispatchQueue.global().async {
+            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+            if let cgImage = try? imageGenerator.copyCGImage(at: time, actualTime: nil) {
+                let uiImage = UIImage(cgImage: cgImage)
+                DispatchQueue.main.async {
+                    self.thumbnail = uiImage
+                }
+            }
+        }
     }
 }
+

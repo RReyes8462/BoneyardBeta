@@ -247,33 +247,62 @@ class FirebaseManager: ObservableObject {
     // ======================================================
 
     // Save or update a user's ascent log
-    func logClimbAscent(for climb: Climb,
-                        rating: Int,
-                        comment: String,
-                        user: User,
-                        completion: @escaping () -> Void) {
+    // MARK: - Log Climb Ascent
+    func logClimbAscent(
+        for climb: Climb,
+        rating: Int,
+        comment: String,
+        user: User,
+        completion: @escaping () -> Void
+    ) {
         guard let climbID = climb.id else { return }
-        let logRef = db.collection("climbs").document(climbID)
-            .collection("logs").document(user.uid)
 
         let logData: [String: Any] = [
             "userID": user.uid,
-            "email": user.email ?? "unknown",
+            "email": user.email ?? "",
             "rating": rating,
             "comment": comment,
-            "timestamp": Timestamp(date: Date())
+            "timestamp": Timestamp(date: Date()),
+            "grade": climb.grade
         ]
 
-        logRef.setData(logData, merge: true) { err in
-            if let err = err {
-                print("❌ Error saving log:", err.localizedDescription)
-            } else {
-                print("✅ Ascent logged for \(climbID)")
-                completion()
-            }
-        }
-    }
+        // Save or update the user’s log under this climb
+        db.collection("climbs").document(climbID)
+            .collection("logs").document(user.uid)
+            .setData(logData, merge: true) { err in
+                if let err = err {
+                    print("❌ Error logging ascent:", err.localizedDescription)
+                    return
+                }
 
+                // Recalculate stats for the climb
+                self.db.collection("climbs").document(climbID)
+                    .collection("logs")
+                    .getDocuments { snapshot, error in
+                        guard let docs = snapshot?.documents else {
+                            completion()
+                            return
+                        }
+
+                        let ratings = docs.compactMap { $0["rating"] as? Int }
+                        let avgRating = ratings.isEmpty ? 0.0 :
+                            Double(ratings.reduce(0, +)) / Double(ratings.count)
+
+                        self.db.collection("climbs").document(climbID)
+                            .setData([
+                                "avgRating": avgRating,
+                                "ascentCount": ratings.count
+                            ], merge: true) { err in
+                                if let err = err {
+                                    print("❌ Error updating climb stats:", err.localizedDescription)
+                                } else {
+                                    print("✅ Ascent logged for climb:", climb.name)
+                                }
+                                completion()
+                            }
+                    }
+            }
+    }
     // Listen for all logs for a climb
     func listenForClimbLogs(climbID: String,
                             onChange: @escaping ([ClimbLog]) -> Void) -> ListenerRegistration {

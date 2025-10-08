@@ -51,12 +51,17 @@ struct Comment: Identifiable, Codable {
     var text: String
     var timestamp: Date
 }
-struct VideoData: Identifiable, Codable{
-    var id: String
+
+struct VideoData: Identifiable, Codable {
+    @DocumentID var id: String?
     var url: String
     var uploaderID: String
     var uploaderEmail: String
     var likes: [String]
+    var grade: String?
+    var section: String?
+    var gymID: String?
+    var timestamp: Date?
 }
 
 extension Color {

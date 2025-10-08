@@ -47,206 +47,17 @@ struct ClimbDetailSheet: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-
-                    // MARK: Header
-                    Text(climb.name)
-                        .font(.title.bold())
-                    Text(climb.grade)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-
-                    HStack {
-                        Text("Ascents: \(localAscentCount)")
-                        Spacer()
-                        Text("Avg Rating: \(String(format: "%.1f", localAvgRating)) ⭐️")
-                    }
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
+                    headerSection
                     Divider()
-
-                    // ====================================================
-                    // MARK: Log an Ascent
-                    // ====================================================
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(hasLogged ? "Edit Your Ascent Log" : "Log an Ascent")
-                            .font(.headline)
-
-                        if hasLogged {
-                            Text("You've already logged this climb. You can update your rating or comment below.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
-                        HStack {
-                            ForEach(1...5, id: \.self) { star in
-                                Image(systemName: star <= rating ? "star.fill" : "star")
-                                    .foregroundColor(.yellow)
-                                    .onTapGesture { rating = star }
-                            }
-                        }
-
-                        TextField("Write a comment...", text: $commentText)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-
-                        Button(action: {
-                            if let user = auth.user, rating > 0 {
-                                firebase.logClimbAscent(
-                                    for: climb,
-                                    rating: rating,
-                                    comment: commentText,
-                                    user: user
-                                ) {
-                                    hasLogged = true
-                                    canVote = true
-                                    showSentToast = true
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                        withAnimation { showSentToast = false }
-                                    }
-                                    hideKeyboard()
-                                }
-                            }
-                        }) {
-                            Label(hasLogged ? "Update Log" : "Submit Log",
-                                  systemImage: hasLogged ? "square.and.pencil" : "plus.circle.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(rating == 0)
-                    }
-
+                    ascentSection
                     Divider()
-
-                    // ====================================================
-                    // MARK: Recent Logs
-                    // ====================================================
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recent Logs")
-                            .font(.headline)
-                        
-                        if climbLogs.isEmpty {
-                            Text("No logs yet. Be the first to send it!")
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(climbLogs.prefix(5)) { log in
-                                DynamicLogRow(log: log, climbID: climb.id ?? "")
-                                Divider()
-                            }
-                        }
-                    }
-
+                    recentLogsSection
                     Divider()
-
-                    // ====================================================
-                    // MARK: Community Grade Consensus
-                    // ====================================================
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Community Grade Consensus")
-                            .font(.headline)
-
-                        if !canVote {
-                            Text("Log a send to cast your grade opinion!")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .padding(.bottom, 6)
-                        }
-
-                        let allowedGrades = gradeOptionsForTag(climb.grade)
-
-                        ForEach(allowedGrades, id: \.self) { option in
-                            HStack {
-                                Button {
-                                    guard canVote else { return }
-                                    if let user = auth.user {
-                                        firebase.submitGradeVote(for: climb.id ?? "", vote: option, user: user) {}
-                                    }
-                                } label: {
-                                    Text(option)
-                                        .font(.headline)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(userVote == option ? Color.blue : Color.gray.opacity(0.2))
-                                        )
-                                        .foregroundColor(userVote == option ? .white : .primary)
-                                }
-                                .disabled(!canVote)
-
-                                GeometryReader { geo in
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.blue.opacity(0.3))
-                                        .frame(width: geo.size.width * CGFloat(votePercent(option)), height: 8)
-                                }
-                                .frame(height: 8)
-                                Text("\(Int(votePercent(option) * 100))%")
-                                    .font(.caption)
-                                    .frame(width: 40, alignment: .trailing)
-                            }
-                            .opacity(canVote ? 1 : 0.5)
-                        }
-                    }
-
+                    gradeConsensusSection
                     Divider()
+                    videosSection
 
-                    // ====================================================
-                    // MARK: Beta Videos + Comments
-                    // ====================================================
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Beta Videos")
-                            .font(.headline)
-
-                        if allVideos.isEmpty {
-                            Text("No beta videos yet.")
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(allVideos) { video in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button {
-                                        fullscreenVideo = VideoItem(url: URL(string: video.url)!)
-                                    } label: {
-                                        VideoThumbnailView(videoURL: URL(string: video.url)!)
-                                            .frame(height: 160)
-                                            .cornerRadius(10)
-                                    }
-
-                                    HStack {
-                                        Button {
-                                            if let user = auth.user {
-                                                firebase.toggleLike(for: climb.id ?? "", videoID: video.id, userID: user.uid) { _ in }
-                                            }
-                                        } label: {
-                                            HStack {
-                                                Image(systemName: video.likes.contains(auth.user?.uid ?? "") ? "heart.fill" : "heart")
-                                                    .foregroundColor(video.likes.contains(auth.user?.uid ?? "") ? .red : .gray)
-                                                Text("\(video.likes.count)")
-                                            }
-                                        }
-                                        Spacer()
-                                        if video.uploaderID == auth.user?.uid {
-                                            Button(role: .destructive) {
-                                                videoToDelete = video
-                                                showDeleteConfirm = true
-                                            } label: {
-                                                Image(systemName: "trash")
-                                            }
-                                        }
-                                    }
-
-                                    CommentListView(climbID: climb.id ?? "", videoID: video.id)
-                                        .environmentObject(firebase)
-                                        .environmentObject(auth)
-
-                                    Divider()
-                                }
-                                .padding(.vertical, 6)
-                            }
-                        }
-                    }
-
+                    // Upload new video
                     Button {
                         showVideoPicker = true
                     } label: {
@@ -274,12 +85,16 @@ struct ClimbDetailSheet: View {
                isPresented: $showDeleteConfirm,
                presenting: videoToDelete) { video in
             Button("Delete", role: .destructive) {
-                firebase.deleteVideo(for: climb.id ?? "", videoID: video.id, videoURL: video.url) { _ in
-                    videoToDelete = nil
+                if let climbID = climb.id, let videoID = video.id {
+                    firebase.deleteVideo(for: climbID,
+                                         videoID: videoID,
+                                         videoURL: video.url ?? "") { _ in
+                        videoToDelete = nil
+                    }
                 }
             }
             Button("Cancel", role: .cancel) { videoToDelete = nil }
-        } message: { video in
+        } message: { _ in
             Text("This will permanently delete your beta video.")
         }
         .onAppear {
@@ -291,9 +106,206 @@ struct ClimbDetailSheet: View {
             loadUserLog()
         }
     }
+
     // ============================================================
     // MARK: - Helpers
     // ============================================================
+    // MARK: Log an Ascent
+    private var ascentSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(hasLogged ? "Edit Your Ascent Log" : "Log an Ascent")
+                .font(.headline)
+
+            if hasLogged {
+                Text("You've already logged this climb. You can update your rating or comment below.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            HStack {
+                ForEach(1...5, id: \.self) { star in
+                    Image(systemName: star <= rating ? "star.fill" : "star")
+                        .foregroundColor(.yellow)
+                        .onTapGesture { rating = star }
+                }
+            }
+
+            TextField("Write a comment...", text: $commentText)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+
+            Button {
+                if let user = auth.user, rating > 0 {
+                    firebase.logClimbAscent(for: climb,
+                                            rating: rating,
+                                            comment: commentText,
+                                            user: user) {
+                        hasLogged = true
+                        canVote = true
+                        showSentToast = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { showSentToast = false }
+                        }
+                        hideKeyboard()
+                    }
+                }
+            } label: {
+                Label(hasLogged ? "Update Log" : "Submit Log",
+                      systemImage: hasLogged ? "square.and.pencil" : "plus.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(rating == 0)
+        }
+    }
+    // MARK: Recent Logs
+    private var recentLogsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recent Logs")
+                .font(.headline)
+
+            if climbLogs.isEmpty {
+                Text("No logs yet. Be the first to send it!")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(climbLogs.prefix(5)) { log in
+                    DynamicLogRow(log: log, climbID: climb.id ?? "")
+                    Divider()
+                }
+            }
+        }
+    }
+    // MARK: Grade Consensus
+    private var gradeConsensusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Community Grade Consensus")
+                .font(.headline)
+
+            if !canVote {
+                Text("Log a send to cast your grade opinion!")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom, 6)
+            }
+
+            let allowedGrades = gradeOptionsForTag(climb.grade)
+            ForEach(allowedGrades, id: \.self) { option in
+                GradeOptionRow(option: option)
+            }
+        }
+    }
+    // MARK: Videos
+    private var videosSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Beta Videos")
+                .font(.headline)
+
+            if allVideos.isEmpty {
+                Text("No beta videos yet.")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(allVideos) { video in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            fullscreenVideo = VideoItem(url: URL(string: video.url)!)
+                        } label: {
+                            VideoThumbnailView(videoURL: URL(string: video.url)!)
+                                .frame(height: 160)
+                                .cornerRadius(10)
+                        }
+
+                        HStack {
+                            Button {
+                                if let user = auth.user,
+                                   let climbID = climb.id,
+                                   let videoID = video.id {
+                                    firebase.toggleLike(for: climbID,
+                                                        videoID: videoID,
+                                                        userID: user.uid) { _ in }
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: video.likes.contains(auth.user?.uid ?? "")
+                                          ? "heart.fill" : "heart")
+                                        .foregroundColor(video.likes.contains(auth.user?.uid ?? "")
+                                                         ? .red : .gray)
+                                    Text("\(video.likes.count)")
+                                }
+                            }
+
+                            Spacer()
+
+                            if video.uploaderID == auth.user?.uid {
+                                Button(role: .destructive) {
+                                    videoToDelete = video
+                                    showDeleteConfirm = true
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                            }
+                        }
+
+                        CommentListView(climbID: climb.id ?? "",
+                                        videoID: video.id ?? "")
+                        .environmentObject(firebase)
+                        .environmentObject(auth)
+
+                        Divider()
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+    }
+    // MARK: Header
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(climb.name)
+                .font(.title.bold())
+            Text(climb.grade)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            HStack {
+                Text("Ascents: \(localAscentCount)")
+                Spacer()
+                Text("Avg Rating: \(String(format: "%.1f", localAvgRating)) ⭐️")
+            }
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+        }
+    }
+    private func GradeOptionRow(option: String) -> some View {
+        HStack {
+            Button {
+                guard canVote else { return }
+                if let user = auth.user {
+                    firebase.submitGradeVote(for: climb.id ?? "", vote: option, user: user) {}
+                }
+            } label: {
+                Text(option)
+                    .font(.headline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(userVote == option ? Color.blue : Color.gray.opacity(0.2))
+                    )
+                    .foregroundColor(userVote == option ? .white : .primary)
+            }
+            .disabled(!canVote)
+
+            GeometryReader { geo in
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.blue.opacity(0.3))
+                    .frame(width: geo.size.width * CGFloat(votePercent(option)), height: 8)
+            }
+            .frame(height: 8)
+            Text("\(Int(votePercent(option) * 100))%")
+                .font(.caption)
+                .frame(width: 40, alignment: .trailing)
+        }
+        .opacity(canVote ? 1 : 0.5)
+    }
+
     private func gradeOptionsForTag(_ tag: String) -> [String] {
         if tag.contains("Pink Tag (V8+)") { return ["V8", "V9", "V10+"] }
         if tag.contains("Purple Tag (V6–8)") || tag.contains("Purple Tag (V6-8)") { return ["V6", "V7", "V8"] }
