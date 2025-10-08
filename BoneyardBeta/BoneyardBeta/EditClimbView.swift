@@ -11,7 +11,7 @@ struct EditClimbView: View {
     @State private var showDeleteConfirm = false
     
     // Color and grade options
-    let colorOptions = ["red", "orange","pink", "blue", "green", "purple", "yellow", "black", "white"]
+    let colorOptions = ["red", "orange","pink", "blue", "green", "lime", "purple", "yellow", "black", "white"]
     
     let gradeOptions: [(color: Color, label: String)] = [
         (.red, "Blue Tag (VB–V0)"),
@@ -130,6 +130,7 @@ struct EditClimbView: View {
         case "red": return .red
         case "blue": return .blue
         case "orange": return .orange
+        case "lime": return .limeGreen
         case "green": return .green
         case "purple": return .purple
         case "yellow": return .yellow

@@ -58,3 +58,7 @@ struct VideoData: Identifiable, Codable{
     var uploaderEmail: String
     var likes: [String]
 }
+
+extension Color {
+    static let limeGreen = Color(red: 0.196, green: 0.804, blue: 0.196)
+}
