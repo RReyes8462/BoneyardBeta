@@ -11,7 +11,7 @@ struct EditClimbView: View {
     @State private var showDeleteConfirm = false
     
     // Color and grade options
-    let colorOptions = ["red", "orange", "blue", "green", "purple", "yellow", "black", "white"]
+    let colorOptions = ["red", "orange","pink", "blue", "green", "purple", "yellow", "black", "white"]
     
     let gradeOptions: [(color: Color, label: String)] = [
         (.red, "Blue Tag (VB–V0)"),
@@ -24,8 +24,8 @@ struct EditClimbView: View {
     ]
     
     // ✅ Dynamic section lists
-    let frontSections = ["front", "cave", "slab"]
-    let backSections  = ["back", "roof"]
+    let frontSections = ["front", "cave", "slab", "barrel", "mural", "lil roofs", "prow", "top out", "overlap"]
+    let backSections  = ["back", "roof", "curvy"]
     
     // Helper: picks correct section list
     private var availableSections: [String] {

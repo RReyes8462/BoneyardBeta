@@ -98,9 +98,9 @@ struct ContentView: View {
                             // --- Wall filtering based on active map ---
                             let wallMatch: Bool
                             if activeMap == "front" {
-                                wallMatch = ["front", "cave", "slab"].contains(section)
+                                wallMatch = ["front", "cave", "slab", "barrel", "mural", "lil roofs", "prow", "top out", "overlap"].contains(section)
                             } else {
-                                wallMatch = ["back", "roof"].contains(section)
+                                wallMatch = ["back", "roof", "curvy"].contains(section)
                             }
 
                             let sectionFilterMatch = selectedSectionFilters.isEmpty || selectedSectionFilters.contains(section)
@@ -299,7 +299,7 @@ struct ContentView: View {
                                 Label("Show All Sections", systemImage: selectedSectionFilters.isEmpty ? "checkmark.circle.fill" : "circle")
                             }
 
-                            ForEach(["front", "back", "cave", "roof", "slab"], id: \.self) { section in
+                            ForEach(["front", "cave", "slab", "barrel", "mural", "lil roofs", "prow", "top out", "overlap", "back", "roof", "curvy"], id: \.self) { section in
                                 Button {
                                     if selectedSectionFilters.contains(section) {
                                         selectedSectionFilters.remove(section)
@@ -463,15 +463,24 @@ struct ContentView: View {
         .frame(height: geo.size.height * 0.5)
     }
     private func filteredClimbs() -> [Climb] {
-        climbs.filter { climb in
-            // --- Filter by Tag ---
+        // normalize selected sections to lowercase for comparison
+        let sectionFilterSet = Set(selectedSectionFilters.map { $0.lowercased() })
+
+        return climbs.filter { climb in
+            let section = (climb.section ?? "").lowercased()
+
+            // --- Which wall is visible for the active map? ---
+            let wallMatch: Bool = (activeMap == "front")
+                ? ["front", "cave", "slab"].contains(section)
+                : ["back", "roof"].contains(section)
+
+            // --- Tag filter ---
             let matchesTag = selectedTagFilters.isEmpty || selectedTagFilters.contains(climb.grade)
 
-            // --- Filter by Section ---
-            let section = climb.section ?? ""
-            let matchesSection = selectedSectionFilters.isEmpty || selectedSectionFilters.contains(section)
+            // --- Section filter (user-chosen) ---
+            let matchesSection = sectionFilterSet.isEmpty || sectionFilterSet.contains(section)
 
-            return matchesTag && matchesSection
+            return wallMatch && matchesTag && matchesSection
         }
     }
     // MARK: - Gestures
