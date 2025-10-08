@@ -471,8 +471,8 @@ struct ContentView: View {
 
             // --- Which wall is visible for the active map? ---
             let wallMatch: Bool = (activeMap == "front")
-                ? ["front", "cave", "slab"].contains(section)
-                : ["back", "roof"].contains(section)
+                ? ["front", "cave", "slab", "barrel", "mural", "lil roofs", "prow", "top out", "overlap"].contains(section)
+                : ["back", "roof", "curvy"].contains(section)
 
             // --- Tag filter ---
             let matchesTag = selectedTagFilters.isEmpty || selectedTagFilters.contains(climb.grade)
