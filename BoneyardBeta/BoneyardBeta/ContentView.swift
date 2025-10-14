@@ -100,12 +100,12 @@ struct ContentView: View {
 
             }
             .animation(.easeInOut, value: showSidebar)
-            .alert("Sign Out?", isPresented: $showLogoutConfirm) {
-                Button("Cancel", role: .cancel) {}
-                Button("Sign Out", role: .destructive) {
-                    auth.signOut()
-                }
-            }
+//            .alert("Sign Out?", isPresented: $showLogoutConfirm) {
+//                Button("Cancel", role: .cancel) {}
+//                Button("Sign Out", role: .destructive) {
+//                    auth.signOut()
+//                }
+//            }
         }
     }
 

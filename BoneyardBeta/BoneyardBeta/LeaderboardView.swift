@@ -50,10 +50,7 @@ struct LeaderboardView: View {
                 }
             }
             .animation(.easeInOut, value: showSidebar)
-            .alert("Sign Out?", isPresented: $showLogoutConfirm) {
-                Button("Cancel", role: .cancel) {}
-                Button("Sign Out", role: .destructive) { auth.signOut() }
-            }
+           
         }
     }
 
